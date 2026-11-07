@@ -35,7 +35,8 @@ jobs:
           if [ -z "$KEY_SEED" ]; then echo "KEY_SEED not set, nothing to watch"; exit 0; fi
           for i in $(seq 1 21); do
             echo "::group::pass $i at $(date -u +%H:%M)"
-            node src/run.js || echo "pass $i had errors, trying again next pass"
+            node src/run.js || echo "testnet pass $i had errors, trying again next pass"
+            NEAR_NETWORK=mainnet node src/run.js || echo "mainnet pass $i had errors, trying again next pass"
             echo "::endgroup::"
             [ "$i" -lt 21 ] && sleep 900
           done

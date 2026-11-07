@@ -1,0 +1,55 @@
+name: deploy-mainnet
+# Real money. Runs only by hand, and only when the confirm box says exactly: deploy mainnet
+# Without funds in the escrow address it prints that address and stops without sending anything.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy mainnet" to allow spending NEAR from the escrow address'
+        type: string
+        default: ""
+concurrency: deploy-mainnet
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the KEY_SEED secret
+        env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
+        run: '[ ${#KEY_SEED} -ge 24 ] || { echo "::error::KEY_SEED secret missing"; exit 1; }'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Build the contract
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
+          cd contract && cargo test -q && cargo near build non-reproducible-wasm --no-abi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: agent
+      - name: Show addresses only (not confirmed)
+        if: inputs.confirm != 'deploy mainnet'
+        working-directory: agent
+        env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
+        run: |
+          node --input-type=module -e "
+            import { mainnet } from './scripts/keys.js';
+            const m = mainnet();
+            console.log('Escrow address to fund: ' + m.accounts.escrow.id);
+            console.log('Agent address:          ' + m.accounts.agent.id);
+            console.log('Nothing was sent. Run again with confirm = deploy mainnet after funding.');" | tee out.txt
+          { echo '### Mainnet addresses (nothing sent)'; echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Deploy to mainnet
+        if: inputs.confirm == 'deploy mainnet'
+        working-directory: agent
+        env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
+          ESCROW_WASM: ../contract/target/near/kol_escrow.wasm
+        run: |
+          set -o pipefail
+          node scripts/deploy-mainnet.js | tee out.txt
+          { echo '### Mainnet deploy'; echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

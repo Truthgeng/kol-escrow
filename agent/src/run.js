@@ -11,7 +11,8 @@ import { makeChain } from "./chain.js";
 
 const env = process.env;
 // On testnet the whole setup can come from one secret, KEY_SEED (see scripts/keys.js).
-const derived = !env.ESCROW_CONTRACT && env.KEY_SEED ? (await import("../scripts/keys.js")).setup() : null;
+const keys = !env.ESCROW_CONTRACT && env.KEY_SEED ? await import("../scripts/keys.js") : null;
+const derived = keys ? (env.NEAR_NETWORK === "mainnet" ? keys.mainnet() : keys.setup()) : null;
 const cfg = {
   network: env.NEAR_NETWORK || "testnet",
   contractId: derived ? derived.accounts.escrow.id : required("ESCROW_CONTRACT"),
@@ -28,6 +29,16 @@ const chain = makeChain(cfg);
 const x = makeX({ mode: cfg.xMode, bearer: env.X_BEARER_TOKEN, fixturePath: env.X_FIXTURE || "fixtures/posts.json" });
 log(`X source: ${cfg.xMode}${x.supportsReplies ? "" : " (free: checks submitted posts, no reply bot check)"}`);
 const judge = makeJudge({ apiKey: env.NEARAI_API_KEY, model: env.NEARAI_MODEL || "zai-org/GLM-4.6" });
+
+// A derived setup that hasn't been deployed yet (for example mainnet before funding) is not an error.
+if (derived) {
+  try {
+    await chain.view("get_config");
+  } catch {
+    log(`${cfg.contractId} on ${cfg.network} isn't deployed yet, nothing to watch`);
+    process.exit(0);
+  }
+}
 
 const nowNs = BigInt(Date.now()) * 1_000_000n;
 const open = await chain.allOpenDeals();
