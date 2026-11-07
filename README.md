@@ -39,8 +39,8 @@ No install needed for steps 1 to 4.
 
 1. **Open https://kol-escrow.vercel.app.** You see totals read live from the testnet contract (locked, paid, refunded) and the latest deal as a ticket.
 2. **Open a campaign from the list.** Each KOL is a ticket showing its state (Locked, Posted, Holding, Paid or Refunded). Open **Agent record** to see each verdict, its reason and how it was checked.
-3. **Open the contract on the explorer:** https://testnet.nearblocks.io/address/kolescrow2-1c4994.testnet. You see the `record_post`, `release` and `refund` calls from `kolagent2-1c4994.testnet` and the `tUSDC` transfers they caused.
-4. **Check the agent's key:** on the explorer page for `kolagent2-1c4994.testnet`, open Access Keys. You see one function call key, limited to the escrow contract and those three methods, and no full access key.
+3. **Open the contract on the explorer:** https://testnet.nearblocks.io/address/kolescrow3-1c4994.testnet. You see the `record_post`, `release` and `refund` calls from `kolagent3-1c4994.testnet` and the `tUSDC` transfers they caused.
+4. **Check the agent's key:** on the explorer page for `kolagent3-1c4994.testnet`, open Access Keys. You see one function call key, limited to the escrow contract and those three methods, and no full access key.
 5. **Create a campaign.** Connect a NEAR testnet wallet, open **New**, fill in the form with a 10 minute hold window and your own testnet account as the KOL, then press **Lock the fees**. Free tUSDC is minted to you in the same step. You land on the campaign page with your deal in Locked.
 6. **See a cross-chain cash-out quote.** As a KOL with a paid deal, open **My deals**, pick for example USDC on Base, paste a Base address and press **Get a quote**. You see a live NEAR Intents quote (amount out, minimum after slippage, time). On testnet this is a preview priced with real USDC; sending works on mainnet. The same quote from the command line:
 
@@ -57,7 +57,7 @@ Requires Rust (stable) and Node 22.
 ```sh
 git clone https://github.com/Truthgeng/kol-escrow && cd kol-escrow
 
-# Contract unit tests: 20 tests covering the happy path, early delete, late post,
+# Contract unit tests: 23 tests covering the happy path, early delete, late post,
 # old post, storage deposits, both timeouts, double settle and failed transfers
 cd contract && cargo test && cd ..
 
@@ -72,7 +72,7 @@ cd agent && npm ci && npm test
 
 ```sh
 cd agent
-ESCROW_CONTRACT=kolescrow2-1c4994.testnet X_MODE=fixture DRY_RUN=1 node src/run.js
+ESCROW_CONTRACT=kolescrow3-1c4994.testnet X_MODE=fixture DRY_RUN=1 node src/run.js
 ```
 
 You see one line per open deal, for example `deal 0 @kol_a_demo: refund (No post matching the terms went up before the deadline)`.

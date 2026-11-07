@@ -4,7 +4,7 @@ import { NearConnector } from "@hot-labs/near-connect";
 
 export const CONFIG = {
   network: import.meta.env.VITE_NETWORK || "testnet",
-  escrow: import.meta.env.VITE_ESCROW || "kolescrow2-1c4994.testnet",
+  escrow: import.meta.env.VITE_ESCROW || "kolescrow3-1c4994.testnet",
   token: import.meta.env.VITE_TOKEN || "koltusdc-1c4994.testnet",
   rpc: import.meta.env.VITE_RPC || "https://test.rpc.fastnear.com",
   explorer: import.meta.env.VITE_EXPLORER || "https://testnet.nearblocks.io",

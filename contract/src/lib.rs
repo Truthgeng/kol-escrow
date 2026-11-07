@@ -10,7 +10,7 @@
 //! - post recorded, agent silent after hold + grace -> anyone can release to the KOL
 
 use near_sdk::json_types::{U128, U64};
-use near_sdk::store::{IterableMap, LookupMap};
+use near_sdk::store::LookupMap;
 use near_sdk::{
     env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise,
     PromiseError, PromiseOrValue,
@@ -101,7 +101,8 @@ pub struct Contract {
     grace_secs: u64,
     next_campaign: CampaignId,
     next_deal: DealId,
-    campaigns: IterableMap<CampaignId, Campaign>,
+    // Campaign ids run 0..next_campaign, so a plain LookupMap is enough to list them.
+    campaigns: LookupMap<CampaignId, Campaign>,
     deals: LookupMap<DealId, Deal>,
     deals_by_kol: LookupMap<AccountId, Vec<DealId>>,
 }
@@ -116,7 +117,7 @@ impl Contract {
             grace_secs: grace_secs.0,
             next_campaign: 0,
             next_deal: 0,
-            campaigns: IterableMap::new(Key::Campaigns),
+            campaigns: LookupMap::new(Key::Campaigns),
             deals: LookupMap::new(Key::Deals),
             deals_by_kol: LookupMap::new(Key::DealsByKol),
         }
@@ -178,8 +179,11 @@ impl Contract {
         require!(env::block_timestamp() < c.deadline.0, "Campaign deadline has passed");
         require!(fee.0 > 0, "Fee must be above zero");
         require!(c.unallocated.0 >= fee.0, "Not enough unallocated funds");
-        let handle = kol_handle.trim_start_matches('@').to_lowercase();
-        require!(!handle.is_empty() && handle.len() <= 15, "Bad X handle");
+        let handle = kol_handle.trim_start_matches('@').to_ascii_lowercase();
+        require!(
+            !handle.is_empty() && handle.len() <= 15 && handle.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+            "Bad X handle"
+        );
         let start = env::storage_usage();
 
         let id = self.next_deal;
@@ -379,12 +383,8 @@ impl Contract {
     }
 
     pub fn list_campaigns(&self, from: u32, limit: u32) -> Vec<Campaign> {
-        self.campaigns
-            .values()
-            .skip(from as usize)
-            .take(limit.min(50) as usize)
-            .cloned()
-            .collect()
+        let end = self.next_campaign.min(from as u64 + limit.min(50) as u64);
+        (from as u64..end).filter_map(|id| self.campaigns.get(&id).cloned()).collect()
     }
 
     pub fn get_deal(&self, deal_id: DealId) -> Option<Deal> {
@@ -611,6 +611,27 @@ mod tests {
         for v in [0u128, 7, 10, 999, 1_000_000, u128::MAX] {
             assert_eq!(dec(v), v.to_string());
         }
+    }
+
+    #[test]
+    fn list_campaigns_pages() {
+        let mut c = setup();
+        ctx("project.near", 0);
+        for i in 0..3 {
+            c.create_campaign(acc("usdc.near"), format!("C{}", i), "#x".into(), U64(3 * DAY), U64(60));
+        }
+        assert_eq!(c.list_campaigns(0, 50).len(), 4);
+        let page = c.list_campaigns(1, 2);
+        assert_eq!(page.iter().map(|x| x.id).collect::<Vec<_>>(), vec![1, 2]);
+        assert!(c.list_campaigns(9, 5).is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Bad X handle")]
+    fn handle_must_be_x_style() {
+        let mut c = setup();
+        ctx("project.near", 0);
+        c.add_deal(0, "bad handle!".into(), acc("bob.near"), U128(1));
     }
 
     #[test]
