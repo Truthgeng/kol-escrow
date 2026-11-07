@@ -35,7 +35,9 @@ function dealView(d, c, now) {
 
   if (d.state === "Pending") {
     step = 0; tone = "locked";
-    label = now < deadlineMs ? `Waiting for the post. Deadline ${when(deadlineMs)}` : "Deadline passed with no verified post";
+    label = now >= deadlineMs ? "Deadline passed with no verified post"
+      : d.claimed_post ? `Post submitted. The agent checks it within 15 minutes. Deadline ${when(deadlineMs)}`
+      : `Waiting for the KOL to post and submit the link. Deadline ${when(deadlineMs)}`;
     if (now > deadlineMs + grace * 1000) action = { text: "Refund the project", tx: tx.refundExpired(d.id) };
   } else if (d.state === "Posted") {
     step = now < holdEnd ? 2 : 2; tone = "holding";
@@ -79,9 +81,17 @@ function ticket(d, c, token, now) {
     const name = i === 3 ? (d.state === "Refunded" ? "Refunded" : d.state === "Released" ? "Paid" : "Settled") : s;
     return `<li class="${i < v.step ? "done" : i === v.step ? "now" : ""}">${name}</li>`;
   }).join("");
-  const post = d.post_id
-    ? `<a href="https://x.com/${esc(d.kol_handle)}/status/${esc(d.post_id)}" target="_blank" rel="noopener">View post</a>`
+  const shown = d.post_id || d.claimed_post;
+  const post = shown
+    ? `<a href="https://x.com/${esc(d.kol_handle)}/status/${esc(shown)}" target="_blank" rel="noopener">View post</a>`
     : "";
+  const canSubmit = d.state === "Pending" && currentAccount() === d.kol_account && now < nsToMs(c.deadline);
+  const submitBox = canSubmit ? `
+    <form class="submit-post" data-deal="${d.id}">
+      <label>${d.claimed_post ? "Wrong post? Submit a different link" : "Posted it? Paste the link to your post"}
+        <span class="pair"><input name="url" inputmode="url" autocomplete="off" placeholder="https://x.com/${esc(d.kol_handle)}/status/…" required><button class="btn small" type="submit">Submit post</button></span>
+      </label>
+    </form>` : "";
   const verdicts = d.verdicts.map((x) => `
     <li><b>${esc(VERDICT[x.action] || x.action)}</b> <span class="muted">${when(nsToMs(x.at))}</span>
       <p>${esc(x.reason)}</p><p class="att">${attestation(x.attestation)}</p></li>`).join("");
@@ -94,12 +104,30 @@ function ticket(d, c, token, now) {
     <ol class="rail">${steps}</ol>
     ${v.progress != null ? `<div class="bar" role="progressbar" aria-valuenow="${Math.round(v.progress * 100)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${v.progress * 100}%"></span></div>` : ""}
     <p class="status">${esc(v.label)} ${post}</p>
+    ${submitBox}
     ${v.action ? `<button class="btn outline" data-tx='${esc(JSON.stringify(v.action.tx))}'>${esc(v.action.text)}</button>` : ""}
     ${verdicts ? `<details><summary>Agent record (${d.verdicts.length})</summary><ul class="verdicts">${verdicts}</ul></details>` : ""}
   </article>`;
 }
 
 function wireTxButtons(root, after) {
+  root.querySelectorAll("form.submit-post").forEach((f) =>
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const url = f.querySelector('[name="url"]').value.trim();
+      const m = /(?:x|twitter)\.com\/\w{1,15}\/status\/(\d{1,20})/i.exec(url);
+      if (!m) return toast("Paste the full link to your post, like https://x.com/you/status/1234…", true);
+      const b = f.querySelector("button");
+      b.disabled = true;
+      try {
+        await send([tx.submitPost(Number(f.dataset.deal), m[1])]);
+        toast("Post submitted. The agent checks it within 15 minutes.");
+        after();
+      } catch (err) {
+        toastError(err);
+        b.disabled = false;
+      }
+    }));
   root.querySelectorAll("[data-tx]").forEach((b) =>
     b.addEventListener("click", async () => {
       if (!currentAccount()) return signIn().catch(toastError);
@@ -122,7 +150,7 @@ async function home() {
   <section class="hero">
     <div class="hero-copy">
       <h1 class="build">${"KOLs get paid when the post stays up.".split(" ").map((w, i) => `<span style="--i:${i}">${w}</span>`).join(" ")}</h1>
-      <p class="lede">The project locks each fee on NEAR. An agent checks the post on X and watches it through the hold window. Delete it early and the project gets refunded. Keep it up and the KOL gets paid.</p>
+      <p class="lede">The project locks each fee on NEAR. The KOL submits their post, and an agent checks it on X and watches it through the hold window. Delete it early and the project gets refunded. Keep it up and the KOL gets paid.</p>
       <div class="actions"><a class="btn" href="#/new">Start a campaign</a><a class="btn ghost" href="#/me">See my deals</a></div>
     </div>
     <div class="stage" aria-hidden="true">${heroTicket()}</div>
@@ -241,7 +269,7 @@ function flowSvg() {
     <path class="wire back" d="M360 159V210H90V138" marker-end="url(#ah)"/>
     <text class="tag" x="222" y="86">fund</text>
     <text class="tag pay" x="492" y="86">post stayed up</text>
-    <text class="tag back" x="225" y="230">deleted, late or botted</text>
+    <text class="tag back" x="225" y="230">deleted, late or off the terms</text>
   </svg>
   <svg class="flow-svg tall" viewBox="0 0 340 430" role="img" aria-label="${label}">
     ${defs("ah2")}
@@ -253,7 +281,7 @@ function flowSvg() {
     <path class="wire back" d="M240 210H300V45H246" marker-end="url(#ah2)"/>
     <text class="tag left" x="150" y="117">fund</text>
     <text class="tag pay left" x="150" y="307">post stayed up</text>
-    <text class="tag back" x="300" y="128" transform="rotate(90 300 128)" dy="-8">deleted, late or botted</text>
+    <text class="tag back" x="300" y="128" transform="rotate(90 300 128)" dy="-8">deleted, late or off the terms</text>
   </svg>`;
 }
 

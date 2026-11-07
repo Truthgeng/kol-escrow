@@ -88,6 +88,8 @@ pub struct Deal {
     pub kol_account: AccountId,
     pub fee: U128,
     pub state: DealState,
+    /// Post the KOL says is theirs (submitted with submit_post). The agent can only confirm this one.
+    pub claimed_post: Option<String>,
     pub post_id: Option<String>,
     pub posted_at: Option<U64>,
     pub verdicts: Vec<Verdict>,
@@ -201,6 +203,7 @@ impl Contract {
                 kol_account: kol_account.clone(),
                 fee,
                 state: DealState::Pending,
+                claimed_post: None,
                 post_id: None,
                 posted_at: None,
                 verdicts: vec![],
@@ -231,6 +234,25 @@ impl Contract {
         )
     }
 
+    // ---------- KOL side ----------
+
+    /// The KOL points the agent at their post (the number at the end of the post's link).
+    /// They can change it until the agent confirms a post or the deadline passes.
+    pub fn submit_post(&mut self, deal_id: DealId, post_id: String) {
+        let mut d = self.deal(deal_id);
+        require!(env::predecessor_account_id() == d.kol_account, "Only this deal's KOL");
+        require!(d.state == DealState::Pending, "Deal is not waiting for a post");
+        let c = self.campaign(d.campaign_id);
+        require!(env::block_timestamp() <= c.deadline.0, "Deadline has passed");
+        require!(
+            !post_id.is_empty() && post_id.len() <= 20 && post_id.bytes().all(|b| b.is_ascii_digit()),
+            "Post id must be the number from the post's link"
+        );
+        d.claimed_post = Some(post_id);
+        self.deals.insert(deal_id, d);
+        event("post_submitted", deal_id, "");
+    }
+
     // ---------- agent side ----------
 
     /// Agent confirms the post exists, matches the terms and went up before the deadline.
@@ -250,6 +272,9 @@ impl Contract {
         require!(posted_at.0 >= c.created_at.0, "Post went up before the campaign started");
         require!(posted_at.0 <= env::block_timestamp(), "Post time is in the future");
         require!(!post_id.is_empty() && post_id.len() <= 32, "Bad post id");
+        if let Some(claimed) = &d.claimed_post {
+            require!(*claimed == post_id, "Agent must confirm the post the KOL submitted");
+        }
         d.post_id = Some(post_id);
         d.posted_at = Some(posted_at);
         d.state = DealState::Posted;
@@ -611,6 +636,51 @@ mod tests {
         for v in [0u128, 7, 10, 999, 1_000_000, u128::MAX] {
             assert_eq!(dec(v), v.to_string());
         }
+    }
+
+    #[test]
+    fn kol_submits_post_and_agent_confirms_it() {
+        let mut c = setup();
+        ctx("alice.near", DAY);
+        c.submit_post(0, "1855000000000000001".into());
+        assert_eq!(c.get_deal(0).unwrap().claimed_post.as_deref(), Some("1855000000000000001"));
+        ctx("agent.near", DAY);
+        c.record_post(0, "1855000000000000001".into(), U64(DAY), "ok".into(), "".into());
+        assert_eq!(c.get_deal(0).unwrap().state, DealState::Posted);
+    }
+
+    #[test]
+    #[should_panic(expected = "the post the KOL submitted")]
+    fn agent_cannot_swap_the_post() {
+        let mut c = setup();
+        ctx("alice.near", DAY);
+        c.submit_post(0, "111".into());
+        ctx("agent.near", DAY);
+        c.record_post(0, "222".into(), U64(DAY), "other".into(), "".into());
+    }
+
+    #[test]
+    #[should_panic(expected = "Only this deal's KOL")]
+    fn only_kol_submits() {
+        let mut c = setup();
+        ctx("mallory.near", DAY);
+        c.submit_post(0, "111".into());
+    }
+
+    #[test]
+    #[should_panic(expected = "number from the post")]
+    fn post_id_must_be_digits() {
+        let mut c = setup();
+        ctx("alice.near", DAY);
+        c.submit_post(0, "https://x.com/a/status/1".into());
+    }
+
+    #[test]
+    #[should_panic(expected = "Deadline has passed")]
+    fn no_submit_after_deadline() {
+        let mut c = setup();
+        ctx("alice.near", 4 * DAY);
+        c.submit_post(0, "111".into());
     }
 
     #[test]

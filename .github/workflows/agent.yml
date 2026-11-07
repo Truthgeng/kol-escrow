@@ -8,6 +8,10 @@ on:
         description: "Print actions without sending transactions"
         type: boolean
         default: false
+      post_url:
+        description: "Only check this X post link with the free embed lookup, then stop"
+        type: string
+        default: ""
 concurrency: agent
 jobs:
   run:
@@ -22,7 +26,13 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm test
+      - name: Check one post
+        if: inputs.post_url != ''
+        env:
+          POST_URL: ${{ inputs.post_url }}
+        run: node scripts/check-post.js
       - name: Run one pass
+        if: inputs.post_url == ''
         env:
           KEY_SEED: ${{ secrets.KEY_SEED }}
           NEAR_NETWORK: ${{ vars.NEAR_NETWORK }}
@@ -36,5 +46,4 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
         run: |
           if [ -z "$ESCROW_CONTRACT$KEY_SEED" ]; then echo "Not deployed yet, skipping"; exit 0; fi
-          if [ "$X_MODE" != "fixture" ] && [ -z "$X_BEARER_TOKEN" ]; then echo "No X_BEARER_TOKEN secret yet, skipping"; exit 0; fi
           node src/run.js

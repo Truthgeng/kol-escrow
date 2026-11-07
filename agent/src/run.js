@@ -18,13 +18,15 @@ const cfg = {
   agentId: derived ? derived.accounts.agent.id : env.AGENT_ACCOUNT,
   agentKey: derived ? derived.agentCallKey.secret : env.AGENT_PRIVATE_KEY,
   dryRun: env.DRY_RUN === "1",
-  xMode: env.X_MODE || "api",
+  // Free embed check by default; the paid API when a token is set; fixtures for tests.
+  xMode: env.X_MODE || (env.X_BEARER_TOKEN ? "api" : "oembed"),
   maxBotShare: Number(env.MAX_BOT_SHARE || 0.6),
   replySample: Number(env.REPLY_SAMPLE || 30),
 };
 
 const chain = makeChain(cfg);
 const x = makeX({ mode: cfg.xMode, bearer: env.X_BEARER_TOKEN, fixturePath: env.X_FIXTURE || "fixtures/posts.json" });
+log(`X source: ${cfg.xMode}${x.supportsReplies ? "" : " (free: checks submitted posts, no reply bot check)"}`);
 const judge = makeJudge({ apiKey: env.NEARAI_API_KEY, model: env.NEARAI_MODEL || "zai-org/GLM-4.6" });
 
 const nowNs = BigInt(Date.now()) * 1_000_000n;
@@ -50,15 +52,15 @@ async function handle(campaign, deal) {
     // Only posts made after the campaign was created count. X recent search covers the last 7 days.
     const startedMs = Number(BigInt(campaign.created_at || 0) / 1_000_000n);
     const since = new Date(Math.max(Date.now() - 6.9 * 86_400_000, startedMs)).toISOString();
-    const candidate = await x.findPost(deal.kol_handle, campaign.required_text, since);
+    const candidate = await x.findPost({ handle: deal.kol_handle, requiredText: campaign.required_text, sinceIso: since, claimedId: deal.claimed_post });
     seen.candidate = candidate;
     if (candidate) {
       judgement = await judge({ title: campaign.title, requiredText: campaign.required_text, postText: candidate.text });
     }
   } else if (deal.state === "Posted") {
-    seen.live = await x.isLive(deal.post_id);
+    seen.live = await x.isLive(deal.post_id, deal.kol_handle);
     const holdEnd = BigInt(deal.posted_at) + BigInt(campaign.hold_secs) * 1_000_000_000n;
-    if (seen.live && nowNs >= holdEnd) {
+    if (seen.live && nowNs >= holdEnd && x.supportsReplies) {
       seen.botShare = botShare(await x.replies(deal.post_id, cfg.replySample), Date.now());
     }
   }

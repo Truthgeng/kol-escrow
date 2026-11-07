@@ -51,7 +51,7 @@ try { await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle:
 expect(refused, "add_deal without a storage deposit fails"); 
 expect((await bal(A.project.id)) === before.project - 2n * fee, "project paid 200 into escrow");
 
-step("3. Both KOLs post. Agent confirms both posts on-chain");
+step("3. Both KOLs post and submit their links. Agent confirms both posts on-chain");
 // Posted a few seconds after the campaign started (the contract rejects older posts).
 const camp = await view(A.escrow.id, "get_campaign", { campaign_id: campaignId });
 const postedAt = new Date(Math.min(Date.now() - 2_000, Number(BigInt(camp.created_at) / 1_000_000n) + 3_000)).toISOString();
@@ -63,6 +63,12 @@ const fixture = {
   replies: {},
 };
 writeFileSync("e2e-fixture.json", JSON.stringify(fixture));
+for (const [who, deal, post] of [[A.kolA, dealA, fixture.posts[0].id], [A.kolB, dealB, fixture.posts[1].id]]) {
+  await new Account(who.id, provider, who.secret).callFunction({
+    contractId: A.escrow.id, methodName: "submit_post", args: { deal_id: deal, post_id: post }, gas: teraToGas("30"), waitUntil: "FINAL",
+  });
+}
+expect((await view(A.escrow.id, "get_deal", { deal_id: dealA })).claimed_post === fixture.posts[0].id, "KOL A's submitted post is on-chain");
 agentPass();
 expect((await view(A.escrow.id, "get_deal", { deal_id: dealA })).state === "Posted", "deal A is Posted");
 expect((await view(A.escrow.id, "get_deal", { deal_id: dealB })).state === "Posted", "deal B is Posted");

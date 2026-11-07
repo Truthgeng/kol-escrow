@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decide, botShare } from "../src/decide.js";
-import { makeX } from "../src/x.js";
+import { makeX, postTimeMs, parseOembed } from "../src/x.js";
 import { rulesJudge } from "../src/judge.js";
 
 const S = 1_000_000_000n;
@@ -84,14 +84,31 @@ test("bot share flags new accounts, low followers and copy-paste replies", () =>
 
 test("fixture X source and rule judge work end to end", async () => {
   const x = makeX({ mode: "fixture", fixturePath: new URL("../fixtures/posts.json", import.meta.url).pathname });
-  const p = await x.findPost("alice", "#KolEscrowLaunch");
+  const p = await x.findPost({ handle: "alice", requiredText: "#KolEscrowLaunch" });
   assert.equal(p.id, "1855000000000000001");
   assert.equal(await x.isLive(p.id), true);
   assert.equal(await x.isLive("1855000000000000002"), false);
-  assert.equal(await x.findPost("bob", "#KolEscrowLaunch"), null);
+  assert.equal(await x.findPost({ handle: "bob", requiredText: "#KolEscrowLaunch" }), null);
+  assert.equal((await x.findPost({ handle: "alice", requiredText: "x", claimedId: "1855000000000000001" })).id, "1855000000000000001");
   const j = await rulesJudge({ requiredText: "#KolEscrowLaunch", postText: p.text });
   assert.equal(j.meetsTerms, true);
   assert.equal(j.attestation, "rules:v1");
   const share = botShare(await x.replies(p.id), Date.parse("2026-11-16T00:00:00Z"));
   assert.ok(share < 0.6);
+});
+
+test("post time is read from the post id", () => {
+  const ms = Date.parse("2026-11-07T12:34:56.789Z");
+  const id = ((BigInt(ms) - 1288834974657n) << 22n) | 123456n; // worker and sequence bits
+  assert.equal(postTimeMs(id.toString()), ms);
+});
+
+test("oEmbed response gives the real author and plain text", () => {
+  const body = {
+    author_url: "https://twitter.com/alice",
+    html: '<blockquote class="twitter-tweet"><p lang="en" dir="ltr">Locked payouts &amp; no chasing<br>projects <a href="https://twitter.com/hashtag/KolEscrow?src=hash">#KolEscrow</a></p>&mdash; Alice (@alice) <a href="https://twitter.com/alice/status/1">November 7, 2026</a></blockquote>',
+  };
+  const p = parseOembed(body);
+  assert.equal(p.handle, "alice");
+  assert.equal(p.text, "Locked payouts & no chasing\nprojects #KolEscrow");
 });

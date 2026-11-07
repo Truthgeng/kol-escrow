@@ -16,18 +16,25 @@ Paid crypto promotion on X runs on trust and screenshots:
 
 1. The project creates a campaign: the text the post must include, a deadline and a hold window.
 2. The project funds it with a stablecoin and locks a fee per KOL (X handle, NEAR account, amount).
-3. The agent finds each KOL's post on X and records it on-chain once it matches the terms.
-4. The agent re-checks the post through the hold window. Deleted early means a refund to the project.
-5. After the hold window, the agent samples the replies for bots, then pays the KOL or refunds the project.
+3. The KOL posts on X and submits the link in the app. The contract stores it, and the agent can only confirm that exact post.
+4. The agent checks the post is by that KOL, includes the required text and went up between the campaign start and the deadline, then records it on-chain.
+5. The agent re-checks the post through the hold window. Deleted early means a refund to the project. Still up at the end means the KOL is paid.
 6. A paid KOL can cash out to USDC or USDT on another chain (Base, Arbitrum, Solana, Ethereum and others) through NEAR Intents.
 
 Every verdict is stored on-chain with its reason, so either side can see why money moved.
+
+### Checking X for free
+
+By default the agent uses X's public embed service, which needs no API key and costs nothing. It confirms a submitted post exists, who wrote it and what it says, and a deleted post comes back as not found. The exact post time is read from the post id itself (X ids encode their creation time in milliseconds).
+
+The free check can't see views, likes or replies. With a paid X API token (`X_BEARER_TOKEN`), the agent switches to the API on its own and adds a reply bot check: it samples up to 30 replies and flags new accounts, accounts with almost no followers, and copy-paste replies.
 
 ## Who can move the money
 
 | Party | Can | Can't |
 | --- | --- | --- |
-| Agent | Confirm a post, pay the KOL's registered account, refund the project | Send funds anywhere else. Its only key is a function call key limited to `record_post`, `release`, `refund` |
+| KOL | Submit or change the link to their post until it's confirmed or the deadline passes | Touch the money |
+| Agent | Confirm the post the KOL submitted, pay the KOL's registered account, refund the project | Send funds anywhere else. Its only key is a function call key limited to `record_post`, `release`, `refund` |
 | Project | Fund, add KOLs, withdraw money not yet assigned to a KOL | Pull back a locked fee |
 | Anyone | Refund the project if no post was verified by the deadline plus a grace period. Pay the KOL if the post was verified and the agent stays silent after the hold window plus grace | Anything else |
 
@@ -35,14 +42,15 @@ The two timeouts mean a missing agent can't trap money in either direction.
 
 ## Try it (do X, see Y)
 
-No install needed for steps 1 to 4.
+No install needed for steps 1 to 5.
 
 1. **Open https://kol-escrow.vercel.app.** You see totals read live from the testnet contract (locked, paid, refunded) and the latest deal as a ticket.
 2. **Open a campaign from the list.** Each KOL is a ticket showing its state (Locked, Posted, Holding, Paid or Refunded). Open **Agent record** to see each verdict, its reason and how it was checked.
-3. **Open the contract on the explorer:** https://testnet.nearblocks.io/address/kolescrow3-1c4994.testnet. You see the `record_post`, `release` and `refund` calls from `kolagent3-1c4994.testnet` and the `tUSDC` transfers they caused.
-4. **Check the agent's key:** on the explorer page for `kolagent3-1c4994.testnet`, open Access Keys. You see one function call key, limited to the escrow contract and those three methods, and no full access key.
-5. **Create a campaign.** Connect a NEAR testnet wallet, open **New**, fill in the form with a 10 minute hold window and your own testnet account as the KOL, then press **Lock the fees**. Free tUSDC is minted to you in the same step. You land on the campaign page with your deal in Locked.
-6. **See a cross-chain cash-out quote.** As a KOL with a paid deal, open **My deals**, pick for example USDC on Base, paste a Base address and press **Get a quote**. You see a live NEAR Intents quote (amount out, minimum after slippage, time). On testnet this is a preview priced with real USDC; sending works on mainnet. The same quote from the command line:
+3. **Open the contract on the explorer:** https://testnet.nearblocks.io/address/kolescrow4-1c4994.testnet. You see the `record_post`, `release` and `refund` calls from `kolagent4-1c4994.testnet` and the `tUSDC` transfers they caused.
+4. **Check the agent's key:** on the explorer page for `kolagent4-1c4994.testnet`, open Access Keys. You see one function call key, limited to the escrow contract and those three methods, and no full access key.
+5. **Check a real post the way the agent does.** In the repo's Actions tab, run the `agent` workflow with a post link in `post_url`. The run prints the post's real author, its creation time read from the id, its text and whether it's live. Locally: `cd agent && node scripts/check-post.js https://x.com/<handle>/status/<id>`.
+6. **Create a campaign.** Connect a NEAR testnet wallet, open **New**, fill in the form with a 10 minute hold window and your own testnet account as the KOL, then press **Lock the fees**. Free tUSDC is minted to you in the same step. You land on the campaign page with your deal in Locked. Open **My deals**, post on X with the required text, paste the link into **Submit post**, and within 15 minutes the agent moves the deal to Holding.
+7. **See a cross-chain cash-out quote.** As a KOL with a paid deal, open **My deals**, pick for example USDC on Base, paste a Base address and press **Get a quote**. You see a live NEAR Intents quote (amount out, minimum after slippage, time). On testnet this is a preview priced with real USDC; sending works on mainnet. The same quote from the command line:
 
    ```sh
    curl "https://kol-escrow.vercel.app/api/quote?originAsset=nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1&destinationAsset=nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near&amount=100000000&refundTo=intents.near&recipient=0x2527D02599Ba641c19FEa793cD0F167589a0f10D"
@@ -57,14 +65,14 @@ Requires Rust (stable) and Node 22.
 ```sh
 git clone https://github.com/Truthgeng/kol-escrow && cd kol-escrow
 
-# Contract unit tests: 23 tests covering the happy path, early delete, late post,
-# old post, storage deposits, both timeouts, double settle and failed transfers
+# Contract unit tests: 28 tests covering the happy path, early delete, late post,
+# old post, KOL-submitted posts, storage deposits, both timeouts, double settle and failed transfers
 cd contract && cargo test && cd ..
 
 # Test token tests: 3 tests
 cd test-token && cargo test && cd ..
 
-# Agent tests: 12 tests for the decision rules and the bot check
+# Agent tests: 14 tests for the decision rules, post time from id, embed parsing and the bot check
 cd agent && npm ci && npm test
 ```
 
@@ -72,7 +80,7 @@ cd agent && npm ci && npm test
 
 ```sh
 cd agent
-ESCROW_CONTRACT=kolescrow3-1c4994.testnet X_MODE=fixture DRY_RUN=1 node src/run.js
+ESCROW_CONTRACT=kolescrow4-1c4994.testnet X_MODE=fixture DRY_RUN=1 node src/run.js
 ```
 
 You see one line per open deal, for example `deal 0 @kol_a_demo: refund (No post matching the terms went up before the deadline)`.
@@ -112,7 +120,7 @@ KOL's NEAR account --ft_transfer--> 1Click deposit address --> USDC on Base, Sol
 
 **Contract** (`contract/`). State per deal: Pending, Posted, Settling, Released, Refunded. `Settling` blocks a second payout while a transfer is in flight; a failed transfer rolls the deal back. The contract rejects a post made before the campaign started or after the deadline, and won't release before the hold window ends.
 
-**Agent** (`agent/`). One pass looks at every open deal: for Pending deals it searches the KOL's recent posts for the required text; for Posted deals it checks the post is still live and, after the hold window, samples up to 30 replies and flags new accounts, accounts with almost no followers, and copy-paste replies. The decision logic is a pure function in `src/decide.js` with its own tests. The `agent` workflow runs a pass every 15 minutes on GitHub Actions, so no server is needed.
+**Agent** (`agent/`). One pass looks at every open deal: for Pending deals it checks the post the KOL submitted (or, with the paid API, searches the KOL's recent posts for the required text); for Posted deals it checks the post is still live and, with the paid API, samples replies after the hold window. The decision logic is a pure function in `src/decide.js` with its own tests. The `agent` workflow runs a pass every 15 minutes on GitHub Actions, so no server is needed.
 
 **Web app** (`web/`). Vite, no framework. Reads the contract over JSON-RPC, signs with NEAR Connect, and talks to 1Click through three small serverless routes on Vercel that accept a fixed request shape.
 
@@ -120,8 +128,8 @@ KOL's NEAR account --ft_transfer--> 1Click deposit address --> USDC on Base, Sol
 
 - **The agent's judgment is trusted.** The contract limits where money can go and when, but it can't check X itself. A faulty or dishonest agent could refund a KOL whose post was fine. The owner can rotate the agent with `set_agent`, and every verdict is public.
 - **The TEE signature is stored, not fully verified.** When NEAR AI Cloud is on, the agent checks that the signed text covers its exact request and response, then stores the signature and signing address on-chain. Checking that address against NEAR AI's attestation report is not done yet. Without a NEAR AI key, verdicts are marked as a rule check.
-- **The bot check is a heuristic.** It looks at account age, follower count and duplicate text. The threshold is set with `MAX_BOT_SHARE` (default 60% of sampled replies).
-- **X recent search covers 7 days**, so a campaign's deadline should be within a week of its start, or the KOL's post should go up while the agent is running.
+- **The free X check can't see engagement.** Views, likes and reply quality need the paid X API. With it, the bot check is a heuristic on account age, follower count and duplicate text, set with `MAX_BOT_SHARE` (default 60% of sampled replies).
+- **The free check depends on X's embed service.** If X changes or limits it, the agent reports an error for that deal and tries again on the next pass. It never pays or refunds on an error.
 - **Testnet only.** The demo uses tUSDC, a free test token in `test-token/`. On mainnet a stablecoin such as native USDC needs the escrow and each KOL registered for storage on the token.
 - **Storage from settled deals is not reclaimed yet.**
 

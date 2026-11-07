@@ -4,7 +4,7 @@ import { NearConnector } from "@hot-labs/near-connect";
 
 export const CONFIG = {
   network: import.meta.env.VITE_NETWORK || "testnet",
-  escrow: import.meta.env.VITE_ESCROW || "kolescrow3-1c4994.testnet",
+  escrow: import.meta.env.VITE_ESCROW || "kolescrow4-1c4994.testnet",
   token: import.meta.env.VITE_TOKEN || "koltusdc-1c4994.testnet",
   rpc: import.meta.env.VITE_RPC || "https://test.rpc.fastnear.com",
   explorer: import.meta.env.VITE_EXPLORER || "https://testnet.nearblocks.io",
@@ -110,6 +110,7 @@ export const tx = {
     receiverId: CONFIG.escrow,
     actions: [fc("add_deal", { campaign_id: campaignId, kol_handle, kol_account, fee }, 30, STORAGE.deal)],
   }),
+  submitPost: (dealId, postId) => ({ receiverId: CONFIG.escrow, actions: [fc("submit_post", { deal_id: dealId, post_id: postId }, 30)] }),
   refundExpired: (dealId) => ({ receiverId: CONFIG.escrow, actions: [fc("refund_expired", { deal_id: dealId })] }),
   releaseTimeout: (dealId) => ({ receiverId: CONFIG.escrow, actions: [fc("release_timeout", { deal_id: dealId })] }),
   // Cash out through NEAR Intents: register the 1Click deposit address on the token (refunded if
