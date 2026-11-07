@@ -27,7 +27,7 @@ jobs:
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
       - name: Build contracts
         run: |
-          (cd contract && cargo near build non-reproducible-wasm)
+          (cd contract && cargo near build non-reproducible-wasm --no-abi)
           (cd test-token && cargo near build non-reproducible-wasm)
           ls -l contract/target/near test-token/target/near
       - uses: actions/setup-node@v4
