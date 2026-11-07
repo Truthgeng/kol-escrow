@@ -52,8 +52,8 @@ jobs:
         if: always()
         working-directory: agent
         run: |
-          { echo '### Deployment'; echo '```json'; cat deployment.json 2>/dev/null; echo '```';
-            echo '### End-to-end test'; echo '```'; cat e2e.log 2>/dev/null; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo '### Deployment'; echo '```json'; cat deployment.json 2>/dev/null || echo "not deployed"; echo '```';
+            echo '### End-to-end test'; echo '```'; cat e2e.log 2>/dev/null || echo "not run"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
