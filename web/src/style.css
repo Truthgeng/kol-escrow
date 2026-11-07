@@ -45,7 +45,7 @@ body::after {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 /* The loop: the logo drawn huge and faint, with a glint travelling round it */
-.loop-bg { position: fixed; z-index: -2; pointer-events: none; width: min(150vw, 1500px); left: 50%; top: 46%; transform: translate(-36%, -50%) rotate(-8deg); overflow: visible; }
+.loop-bg { position: fixed; z-index: -2; pointer-events: none; width: min(86vw, 1100px); max-height: 80vh; left: 50%; top: 52%; transform: translate(-50%, -50%); overflow: visible; }
 .loop-bg path { fill: none; stroke-linejoin: round; }
 .loop-bg .trace { stroke: rgba(47, 243, 192, 0.07); stroke-width: 6; }
 .loop-bg .glint { stroke: var(--beam); stroke-width: 0.22; stroke-dasharray: 10 90; filter: drop-shadow(0 0 1.2px var(--beam)) drop-shadow(0 0 3px rgba(47, 243, 192, 0.6)); animation: glint 16s linear infinite; opacity: 0.55; }
@@ -303,7 +303,8 @@ legend { font-weight: 700; padding: 0 6px; }
   .flow-svg.tall { display: block; margin: 8px auto 24px; }
 }
 @media (max-width: 860px) {
-  .loop-bg { width: 230vw; top: 30%; transform: translate(-40%, -50%) rotate(-14deg); }
+  .loop-bg { width: 92vw; top: 50%; }
+  .loop-bg .trace { stroke: rgba(47, 243, 192, 0.12); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
