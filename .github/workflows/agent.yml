@@ -1,0 +1,37 @@
+name: agent
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print actions without sending transactions"
+        type: boolean
+        default: false
+concurrency: agent
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    if: vars.ESCROW_CONTRACT != ''
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - name: Run one pass
+        env:
+          NEAR_NETWORK: ${{ vars.NEAR_NETWORK }}
+          ESCROW_CONTRACT: ${{ vars.ESCROW_CONTRACT }}
+          AGENT_ACCOUNT: ${{ vars.AGENT_ACCOUNT }}
+          AGENT_PRIVATE_KEY: ${{ secrets.AGENT_PRIVATE_KEY }}
+          X_MODE: ${{ vars.X_MODE }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          NEARAI_API_KEY: ${{ secrets.NEARAI_API_KEY }}
+          NEARAI_MODEL: ${{ vars.NEARAI_MODEL }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: node src/run.js

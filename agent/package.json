@@ -1,0 +1,17 @@
+{
+  "name": "kol-escrow-agent",
+  "version": "1.0.0",
+  "description": "Checks KOL posts on X and settles the NEAR escrow",
+  "scripts": {
+    "start": "node src/run.js",
+    "check": "DRY_RUN=1 node src/run.js",
+    "test": "node --test test/*.test.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "near-api-js": "^7.4.0"
+  },
+  "type": "module",
+  "private": true
+}

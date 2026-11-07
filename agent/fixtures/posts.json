@@ -1,0 +1,16 @@
+{
+  "posts": [
+    { "id": "1855000000000000001", "handle": "alice", "text": "Been testing @KolEscrow for a week. Locked payouts, no more chasing projects #KolEscrowLaunch", "created_at": "2026-11-08T10:00:00Z", "deleted": false },
+    { "id": "1855000000000000002", "handle": "bob", "text": "Huge things coming #KolEscrowLaunch", "created_at": "2026-11-08T11:00:00Z", "deleted": true }
+  ],
+  "replies": {
+    "1855000000000000001": [
+      { "text": "this is needed", "author_created_at": "2019-03-01T00:00:00Z", "author_followers": 820 },
+      { "text": "finally", "author_created_at": "2021-06-01T00:00:00Z", "author_followers": 240 },
+      { "text": "how do I join as a KOL?", "author_created_at": "2020-01-01T00:00:00Z", "author_followers": 1300 },
+      { "text": "great project sir", "author_created_at": "2026-11-01T00:00:00Z", "author_followers": 2 },
+      { "text": "bullish", "author_created_at": "2018-09-01T00:00:00Z", "author_followers": 95 },
+      { "text": "good one", "author_created_at": "2022-02-01T00:00:00Z", "author_followers": 60 }
+    ]
+  }
+}

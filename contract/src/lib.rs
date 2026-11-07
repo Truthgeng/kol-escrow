@@ -404,7 +404,7 @@ struct FundMsg {
 }
 
 fn push_verdict(d: &mut Deal, action: &str, reason: String, attestation: String) {
-    require!(reason.len() <= 500 && attestation.len() <= 200, "Verdict text too long");
+    require!(reason.len() <= 500 && attestation.len() <= 400, "Verdict text too long");
     d.verdicts.push(Verdict {
         action: action.to_string(),
         reason,
