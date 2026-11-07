@@ -12,7 +12,7 @@ export const SEC_NS = 1_000_000_000n;
  * @param {bigint} p.nowNs      current time in nanoseconds
  * @param {object} p.seen       what X showed:
  *   - for a Pending deal: { candidate: {id, text, createdAtNs, authorHandle} | null }
- *   - for a Posted deal:  { live: boolean, botShare: number | null }
+ *   - for a Posted deal:  { live: boolean, text: string | null, botShare: number | null }
  * @param {object} p.judgement  { meetsTerms: boolean, reason: string } for the candidate post (Pending only)
  * @param {object} p.rules      { maxBotShare: number }
  */
@@ -47,6 +47,14 @@ export function decide({ deal, campaign, nowNs, seen, judgement, rules }) {
         action: "refund",
         args: { deal_id: deal.id },
         reason: `Post ${deal.post_id} was deleted before the hold window ended`,
+      };
+    }
+    // X Premium lets people edit a post after it goes up. The required text has to stay in it.
+    if (seen?.text != null && !seen.text.toLowerCase().includes(String(campaign.required_text).toLowerCase())) {
+      return {
+        action: "refund",
+        args: { deal_id: deal.id },
+        reason: `Post ${deal.post_id} was edited and no longer includes "${campaign.required_text}"`,
       };
     }
     const holdEnd = BigInt(deal.posted_at) + holdNs;

@@ -50,6 +50,17 @@ test("refunds when the post is deleted during the hold window", () => {
   assert.match(r.reason, /deleted/);
 });
 
+test("refunds when the post is edited to drop the required text", () => {
+  const r = decide({ deal: posted, campaign, nowNs: 4n * DAY, seen: { live: true, text: "gm, nothing to see here" }, rules });
+  assert.equal(r.action, "refund");
+  assert.match(r.reason, /edited/);
+});
+
+test("keeps holding when the edited post still has the required text", () => {
+  const r = decide({ deal: posted, campaign, nowNs: 4n * DAY, seen: { live: true, text: "gm (edited) #LAUNCH" }, rules });
+  assert.equal(r.action, "wait");
+});
+
 test("waits during the hold window", () => {
   const r = decide({ deal: posted, campaign, nowNs: 5n * DAY, seen: { live: true }, rules });
   assert.equal(r.action, "wait");

@@ -18,7 +18,7 @@ Paid crypto promotion on X runs on trust and screenshots:
 2. The project funds it with a stablecoin and locks a fee per KOL (X handle, NEAR account, amount).
 3. The KOL posts on X and submits the link in the app. The contract stores it, and the agent can only confirm that exact post.
 4. The agent checks the post is by that KOL, includes the required text and went up between the campaign start and the deadline, then records it on-chain.
-5. The agent re-checks the post through the hold window. Deleted early means a refund to the project. Still up at the end means the KOL is paid.
+5. The agent re-checks the post through the hold window. Deleted early, or edited so the required text is gone, means a refund to the project. Still up and unchanged at the end means the KOL is paid.
 6. A paid KOL can cash out to USDC or USDT on another chain (Base, Arbitrum, Solana, Ethereum and others) through NEAR Intents.
 
 Every verdict is stored on-chain with its reason, so either side can see why money moved.
@@ -72,7 +72,7 @@ cd contract && cargo test && cd ..
 # Test token tests: 3 tests
 cd test-token && cargo test && cd ..
 
-# Agent tests: 14 tests for the decision rules, post time from id, embed parsing and the bot check
+# Agent tests: 16 tests for the decision rules (including edited posts), post time from id, embed parsing and the bot check
 cd agent && npm ci && npm test
 ```
 

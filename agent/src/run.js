@@ -58,7 +58,10 @@ async function handle(campaign, deal) {
       judgement = await judge({ title: campaign.title, requiredText: campaign.required_text, postText: candidate.text });
     }
   } else if (deal.state === "Posted") {
-    seen.live = await x.isLive(deal.post_id, deal.kol_handle);
+    // One lookup gives both: is it still up, and does it still say the right thing.
+    const now = await x.findPost({ handle: deal.kol_handle, requiredText: campaign.required_text, claimedId: deal.post_id });
+    seen.live = now !== null;
+    seen.text = now ? now.text : null;
     const holdEnd = BigInt(deal.posted_at) + BigInt(campaign.hold_secs) * 1_000_000_000n;
     if (seen.live && nowNs >= holdEnd && x.supportsReplies) {
       seen.botShare = botShare(await x.replies(deal.post_id, cfg.replySample), Date.now());
