@@ -25,3 +25,10 @@ jobs:
           cargo near build non-reproducible-wasm --no-abi && cp target/near/kol_escrow.wasm /tmp/opt-s.wasm
           wasm-opt -Oz --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int --strip-debug --strip-producers -o /tmp/opt-z-oz.wasm /tmp/opt-z.wasm
           ls -l /tmp/*.wasm | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: What takes the space
+        run: |
+          sed -i 's/^opt-level = "s"/opt-level = "z"/; s/^strip = true/strip = false/' Cargo.toml
+          cargo build --target wasm32-unknown-unknown --release 2>/dev/null
+          cargo install twiggy --locked -q
+          twiggy top -n 40 target/wasm32-unknown-unknown/release/kol_escrow.wasm | sed 's/^/TW /'
+          twiggy garbage -n 5 target/wasm32-unknown-unknown/release/kol_escrow.wasm | sed 's/^/TW /'
