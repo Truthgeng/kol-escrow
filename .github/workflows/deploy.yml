@@ -47,7 +47,9 @@ jobs:
         working-directory: agent
         env:
           KEY_SEED: ${{ secrets.KEY_SEED }}
-        run: node scripts/e2e.js | tee e2e.log
+        run: |
+          set -o pipefail
+          node scripts/e2e.js | tee e2e.log
       - name: Summary
         if: always()
         working-directory: agent

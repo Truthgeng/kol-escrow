@@ -20,7 +20,8 @@ const fee = 100_000_000n; // 100 tUSDC
 const view = (contractId, method, args) => provider.callFunction({ contractId, method, args });
 const bal = async (id) => BigInt(await view(A.token.id, "ft_balance_of", { account_id: id }));
 const call = (contractId, methodName, args, deposit = 0n) =>
-  project.callFunction({ contractId, methodName, args, gas: teraToGas("100"), deposit });
+  // Wait for finality so the views that follow see this call's result, including its callbacks.
+  project.callFunction({ contractId, methodName, args, gas: teraToGas("100"), deposit, waitUntil: "FINAL" });
 
 step("1. Project mints 200 tUSDC and creates a campaign");
 await call(A.token.id, "mint", { account_id: A.project.id, amount: (2n * fee).toString() });

@@ -36,6 +36,7 @@ export function makeChain({ network, contractId, agentId, agentKey }) {
         args,
         gas: teraToGas("80"),
         deposit: 0n,
+        waitUntil: "FINAL",
       });
     },
   };
