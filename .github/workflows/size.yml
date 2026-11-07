@@ -20,7 +20,8 @@ jobs:
           cargo near build non-reproducible-wasm --help | grep -iE "abi|opt" || true
       - name: Sizes
         run: |
-          cargo near build non-reproducible-wasm && cp target/near/kol_escrow.wasm /tmp/default.wasm
-          cargo near build non-reproducible-wasm --no-abi && cp target/near/kol_escrow.wasm /tmp/noabi.wasm || echo "no --no-abi flag"
-          wasm-opt -Oz --enable-bulk-memory --enable-sign-ext --strip-debug --strip-producers -o /tmp/noabi-oz.wasm /tmp/noabi.wasm || wasm-opt -Oz --strip-debug -o /tmp/noabi-oz.wasm /tmp/default.wasm
+          cargo near build non-reproducible-wasm --no-abi && cp target/near/kol_escrow.wasm /tmp/opt-z.wasm
+          sed -i 's/^opt-level = "z"/opt-level = "s"/' Cargo.toml
+          cargo near build non-reproducible-wasm --no-abi && cp target/near/kol_escrow.wasm /tmp/opt-s.wasm
+          wasm-opt -Oz --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int --strip-debug --strip-producers -o /tmp/opt-z-oz.wasm /tmp/opt-z.wasm
           ls -l /tmp/*.wasm | tee -a "$GITHUB_STEP_SUMMARY"

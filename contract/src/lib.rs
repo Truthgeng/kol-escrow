@@ -156,7 +156,7 @@ impl Contract {
                 deal_ids: vec![],
             },
         );
-        env::log_str(&format!("EVENT campaign_created {}", id));
+        event("campaign_created", id, "");
         self.flush();
         charge_storage(start, 0);
         id
@@ -205,7 +205,7 @@ impl Contract {
         let mut list = self.deals_by_kol.get(&kol_account).cloned().unwrap_or_default();
         list.push(id);
         self.deals_by_kol.insert(kol_account, list);
-        env::log_str(&format!("EVENT deal_added {}", id));
+        event("deal_added", id, "");
         self.flush();
         charge_storage(start, VERDICT_RESERVE_BYTES);
         id
@@ -251,7 +251,7 @@ impl Contract {
         d.state = DealState::Posted;
         push_verdict(&mut d, "post_verified", reason, attestation);
         self.deals.insert(deal_id, d);
-        env::log_str(&format!("EVENT post_recorded {}", deal_id));
+        event("post_recorded", deal_id, "");
     }
 
     /// Agent confirms the post stayed up for the whole hold window. Pays the KOL.
@@ -326,7 +326,7 @@ impl Contract {
         require!(sender_id == c.project, "Only the project can fund its campaign");
         c.unallocated = U128(c.unallocated.0 + amount.0);
         self.campaigns.insert(parsed.campaign_id, c);
-        env::log_str(&format!("EVENT funded {} {}", parsed.campaign_id, amount.0));
+        event("funded", parsed.campaign_id, &dec(amount.0));
         PromiseOrValue::Value(U128(0))
     }
 
@@ -342,12 +342,12 @@ impl Contract {
         let mut d = self.deal(deal_id);
         if result.is_ok() {
             d.state = if to_kol { DealState::Released } else { DealState::Refunded };
-            env::log_str(&format!("EVENT settled {} {}", deal_id, if to_kol { "kol" } else { "project" }));
+            event("settled", deal_id, if to_kol { "kol" } else { "project" });
         } else {
             // Transfer failed (for example the receiver has no storage on the token). Put it back.
             d.state = if d.posted_at.is_some() { DealState::Posted } else { DealState::Pending };
             d.verdicts.pop();
-            env::log_str(&format!("EVENT settle_failed {}", deal_id));
+            event("settle_failed", deal_id, "");
         }
         self.deals.insert(deal_id, d);
         result.is_ok()
@@ -425,14 +425,34 @@ fn charge_storage(start: u64, reserve: u64) {
     let used = env::storage_usage().saturating_sub(start) + reserve;
     let cost = env::storage_byte_cost().saturating_mul(used as u128);
     let attached = env::attached_deposit();
-    require!(
-        attached >= cost,
-        format!("Attach at least {} yoctoNEAR to pay for storage", cost.as_yoctonear())
-    );
+    if attached < cost {
+        env::panic_str(&["Attach at least ", &dec(cost.as_yoctonear()), " yoctoNEAR to pay for storage"].concat());
+    }
     let refund = attached.saturating_sub(cost);
     if !refund.is_zero() {
         Promise::new(env::predecessor_account_id()).transfer(refund).detach();
     }
+}
+
+/// Decimal digits of a number without pulling in the formatting machinery.
+fn dec(mut v: u128) -> String {
+    if v == 0 {
+        return "0".into();
+    }
+    let mut b = [0u8; 39];
+    let mut i = b.len();
+    while v > 0 {
+        i -= 1;
+        b[i] = b'0' + (v % 10) as u8;
+        v /= 10;
+    }
+    String::from_utf8(b[i..].to_vec()).unwrap()
+}
+
+/// Logs "EVENT <name> <id> [<extra>]" for indexers and the explorer.
+fn event(name: &str, id: u64, extra: &str) {
+    let sep = if extra.is_empty() { "" } else { " " };
+    env::log_str(&["EVENT ", name, " ", &dec(id as u128), sep, extra].concat());
 }
 
 fn push_verdict(d: &mut Deal, action: &str, reason: String, attestation: String) {
@@ -493,8 +513,9 @@ impl Contract {
     fn ft_transfer(token: AccountId, receiver: AccountId, amount: u128) -> Promise {
         Promise::new(token).function_call(
             "ft_transfer".to_string(),
-            near_sdk::serde_json::json!({ "receiver_id": receiver, "amount": U128(amount) })
-                .to_string()
+            // Built by hand: account ids and digits need no escaping, and this keeps the wasm small.
+            ["{\"receiver_id\":\"", receiver.as_str(), "\",\"amount\":\"", &dec(amount), "\"}"]
+                .concat()
                 .into_bytes(),
             ONE_YOCTO,
             GAS_FT_TRANSFER,
@@ -583,6 +604,13 @@ mod tests {
         c.add_deal(0, "a_very_long_hd".into(), acc("a-fairly-long-kol-account-name.near"), U128(10));
         let deal_bytes = env::storage_usage() - s0;
         assert!(deal_bytes + VERDICT_RESERVE_BYTES < 2_000, "deal used {} bytes", deal_bytes);
+    }
+
+    #[test]
+    fn dec_matches_display() {
+        for v in [0u128, 7, 10, 999, 1_000_000, u128::MAX] {
+            assert_eq!(dec(v), v.to_string());
+        }
     }
 
     #[test]
