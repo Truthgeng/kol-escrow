@@ -120,20 +120,35 @@ function wireTxButtons(root, after) {
 async function home() {
   app.innerHTML = `
   <section class="hero">
-    <h1>KOLs get paid when the post stays up. Projects get refunded when it doesn't.</h1>
-    <p class="lede">The project locks each KOL's fee on NEAR. An agent checks the post on X, watches it through the hold window, then pays the KOL or refunds the project. Neither side can pull the money once it's locked.</p>
-    <div class="actions"><a class="btn" href="#/new">Start a campaign</a><a class="btn ghost" href="#/me">See my deals</a></div>
+    <div class="hero-copy">
+      <h1 class="build">${"KOLs get paid when the post stays up.".split(" ").map((w, i) => `<span style="--i:${i}">${w}</span>`).join(" ")}</h1>
+      <p class="lede">The project locks each fee on NEAR. An agent checks the post on X and watches it through the hold window. Delete it early and the project gets refunded. Keep it up and the KOL gets paid.</p>
+      <div class="actions"><a class="btn" href="#/new">Start a campaign</a><a class="btn ghost" href="#/me">See my deals</a></div>
+    </div>
+    <div class="stage" aria-hidden="true">${heroTicket()}</div>
   </section>
-  <section><h2>Latest deal</h2><div id="demo" class="loading">Loading from ${esc(CONFIG.network)}…</div></section>
-  <section class="rules">
-    <h2>Who can move the money</h2>
-    <ul>
+
+  <section class="stats" id="stats" aria-label="Totals on ${esc(CONFIG.network)}">
+    <div><b data-count="locked">0</b><span>locked right now</span></div>
+    <div><b data-count="paid">0</b><span>paid to KOLs</span></div>
+    <div><b data-count="refunded">0</b><span>refunded to projects</span></div>
+    <div><b data-count="deals">0</b><span>deals</span></div>
+  </section>
+
+  <section class="flow">
+    <h2>Where the money can go</h2>
+    ${flowSvg()}
+    <ul class="flow-notes">
       <li><b>The agent</b> can only confirm a post, pay the KOL's registered account, or refund the project. Its key can't call anything else.</li>
-      <li><b>The project</b> can't take back a locked fee. It can only withdraw money it never assigned to a KOL.</li>
-      <li><b>Anyone</b> can refund the project if no post was verified by the deadline, or pay the KOL if the agent stays silent after the hold window.</li>
+      <li><b>The project</b> can't pull back a locked fee. It can only withdraw money it never gave to a KOL.</li>
+      <li><b>Anyone</b> can settle a stuck deal: refund the project if no post was verified by the deadline, or pay the KOL if the agent goes quiet after the hold window.</li>
     </ul>
   </section>
+
+  <section><h2>Latest deal</h2><div id="demo" class="loading">Loading from ${esc(CONFIG.network)}…</div></section>
   <section><h2>Campaigns</h2><div id="list" class="loading">Loading…</div></section>`;
+
+  startHeroLoop();
 
   const campaigns = await view(CONFIG.escrow, "list_campaigns", { from: 0, limit: 50 });
   const list = document.getElementById("list");
@@ -143,17 +158,103 @@ async function home() {
         <li><a href="#/c/${c.id}"><b>${esc(c.title)}</b><span class="muted">${c.deal_ids.length} KOL${c.deal_ids.length === 1 ? "" : "s"}, needs ${esc(c.required_text)}</span></a></li>`).join("")}</ul>`
     : `<p>No campaigns yet. <a href="#/new">Start the first one</a>.</p>`;
 
+  const all = await Promise.all(campaigns.map(async (c) => ({ c, deals: await view(CONFIG.escrow, "get_campaign_deals", { campaign_id: c.id }) })));
+  const token = await tokenInfo(CONFIG.token);
+  const sum = (f) => all.flatMap((x) => x.deals).filter(f).reduce((s, d) => s + BigInt(d.fee), 0n);
+  const totals = {
+    locked: sum((d) => ["Pending", "Posted", "Settling"].includes(d.state)),
+    paid: sum((d) => d.state === "Released"),
+    refunded: sum((d) => d.state === "Refunded"),
+  };
+  const unit = 10n ** BigInt(token.decimals);
+  countUp("locked", Number(totals.locked / unit), ` ${token.symbol}`);
+  countUp("paid", Number(totals.paid / unit), ` ${token.symbol}`);
+  countUp("refunded", Number(totals.refunded / unit), ` ${token.symbol}`);
+  countUp("deals", all.reduce((n, x) => n + x.deals.length, 0), "");
+
   const demo = document.getElementById("demo");
   demo.classList.remove("loading");
-  const latest = [...campaigns].reverse().find((c) => c.deal_ids.length);
+  const latest = [...all].reverse().find((x) => x.deals.length);
   if (!latest) return (demo.innerHTML = `<p class="muted">Nothing here yet.</p>`);
-  const deals = await view(CONFIG.escrow, "get_campaign_deals", { campaign_id: latest.id });
-  const token = await tokenInfo(latest.token);
-  // Show the deal that says the most: one in its hold window, then a settled one, then any.
   const rank = { Posted: 0, Released: 1, Refunded: 2, Settling: 3, Pending: 4 };
-  const pick = [...deals].sort((a, b) => rank[a.state] - rank[b.state])[0];
-  demo.innerHTML = `<p class="muted"><a href="#/c/${latest.id}">${esc(latest.title)}</a></p>` + ticket(pick, latest, token, Date.now());
+  const pick = [...latest.deals].sort((a, b) => rank[a.state] - rank[b.state])[0];
+  demo.innerHTML = `<p class="muted"><a href="#/c/${latest.c.id}">${esc(latest.c.title)}</a></p>` + ticket(pick, latest.c, await tokenInfo(latest.c.token), Date.now());
   wireTxButtons(demo, home);
+}
+
+function countUp(key, target, suffix) {
+  const el = document.querySelector(`[data-count="${key}"]`);
+  if (!el) return;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const t0 = performance.now(), dur = reduce ? 0 : 1400;
+  const step = (t) => {
+    const p = dur ? Math.min(1, (t - t0) / dur) : 1;
+    const v = Math.round(target * (1 - Math.pow(1 - p, 3)));
+    el.textContent = v.toLocaleString("en-US") + suffix;
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+// The hero ticket plays one deal from start to finish, on a loop.
+function heroTicket() {
+  return `
+  <div class="glass-ticket" data-stage="0">
+    <div class="coin"><span>$</span></div>
+    <header><div><h3>@cryptodera</h3><p>Mainnet launch push</p></div><p class="amt">150<span>USDC</span></p></header>
+    <ol class="rail"><li>Locked</li><li>Posted</li><li>Holding</li><li class="end">Paid</li></ol>
+    <div class="bar"><span></span></div>
+    <p class="line" data-line="0">Fee locked in escrow</p>
+    <p class="line" data-line="1">Post found with #MainnetLaunch</p>
+    <p class="line" data-line="2">Still live, day 4 of 7</p>
+    <p class="line" data-line="3">Paid to cryptodera.near</p>
+  </div>`;
+}
+
+let heroTimer;
+function startHeroLoop() {
+  clearInterval(heroTimer);
+  const t = document.querySelector(".glass-ticket");
+  if (!t) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return t.setAttribute("data-stage", "3");
+  let s = 0;
+  heroTimer = setInterval(() => {
+    if (!document.body.contains(t)) return clearInterval(heroTimer);
+    s = (s + 1) % 5;
+    t.setAttribute("data-stage", String(s === 4 ? 3 : s));
+    if (s === 4) setTimeout(() => t.setAttribute("data-stage", "reset"), 1400);
+  }, 2200);
+}
+
+function flowSvg() {
+  const label = "The project funds the escrow. The escrow pays the KOL if the post stays up, or refunds the project if it doesn't.";
+  const defs = (id) => `<defs><marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>`;
+  const vault = (cx, cy) => `<circle cx="${cx}" cy="${cy}" r="14"/><path d="M${cx} ${cy - 14}v-6M${cx} ${cy + 14}v6M${cx - 14} ${cy}h-6M${cx + 14} ${cy}h6"/>`;
+  return `
+  <svg class="flow-svg wide" viewBox="0 0 720 240" role="img" aria-label="${label}">
+    ${defs("ah")}
+    <g class="node"><rect x="10" y="62" width="160" height="70" rx="14"/><text x="90" y="94">Project</text><text class="sub" x="90" y="115">locks the fee</text></g>
+    <g class="node vault"><rect x="280" y="35" width="160" height="124" rx="18"/>${vault(360, 72)}<text x="360" y="120">Escrow</text><text class="sub" x="360" y="141">on NEAR</text></g>
+    <g class="node kol"><rect x="550" y="62" width="160" height="70" rx="14"/><text x="630" y="94">KOL</text><text class="sub" x="630" y="115">any chain via Intents</text></g>
+    <path class="wire in" d="M170 97H274" marker-end="url(#ah)"/>
+    <path class="wire pay" d="M440 97H544" marker-end="url(#ah)"/>
+    <path class="wire back" d="M360 159V210H90V138" marker-end="url(#ah)"/>
+    <text class="tag" x="222" y="86">fund</text>
+    <text class="tag pay" x="492" y="86">post stayed up</text>
+    <text class="tag back" x="225" y="230">deleted, late or botted</text>
+  </svg>
+  <svg class="flow-svg tall" viewBox="0 0 340 430" role="img" aria-label="${label}">
+    ${defs("ah2")}
+    <g class="node"><rect x="40" y="10" width="200" height="70" rx="14"/><text x="140" y="42">Project</text><text class="sub" x="140" y="63">locks the fee</text></g>
+    <g class="node vault"><rect x="40" y="150" width="200" height="120" rx="18"/>${vault(140, 188)}<text x="140" y="234">Escrow</text><text class="sub" x="140" y="255">on NEAR</text></g>
+    <g class="node kol"><rect x="40" y="340" width="200" height="70" rx="14"/><text x="140" y="372">KOL</text><text class="sub" x="140" y="393">any chain via Intents</text></g>
+    <path class="wire in" d="M140 80V144" marker-end="url(#ah2)"/>
+    <path class="wire pay" d="M140 270V334" marker-end="url(#ah2)"/>
+    <path class="wire back" d="M240 210H300V45H246" marker-end="url(#ah2)"/>
+    <text class="tag left" x="150" y="117">fund</text>
+    <text class="tag pay left" x="150" y="307">post stayed up</text>
+    <text class="tag back" x="300" y="128" transform="rotate(90 300 128)" dy="-8">deleted, late or botted</text>
+  </svg>`;
 }
 
 async function campaignPage(id) {
