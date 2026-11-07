@@ -371,7 +371,7 @@ function wirePayout(p, nearUsdc) {
       check(v);
       out.textContent = "Asking NEAR Intents for a price…";
       const q = (await intents.quote(params(v, true))).quote;
-      out.innerHTML = `You'd receive about <b>${esc(q.amountOutFormatted)} ${esc(v.sym)}</b> on ${esc(chainName(v.chain))}, at least ${esc(fromUnits(q.minAmountOut, v.dec))} after slippage. Usually arrives in about ${Math.max(1, Math.round(q.timeEstimate / 60))} min.` +
+      out.innerHTML = `You'd receive about <b>${esc(q.amountOutFormatted)} ${esc(v.sym)}</b> on ${esc(chainName(v.chain))}, at least ${esc(fromUnits(q.minAmountOut, v.dec))} after slippage. Usually arrives in about ${q.timeEstimate < 90 ? `${q.timeEstimate} seconds` : `${Math.round(q.timeEstimate / 60)} min`}.` +
         (live ? "" : `<br><span class="muted">Testnet preview: priced with real USDC on NEAR mainnet. Sending works once the escrow runs on mainnet.</span>`);
       sendBtn.hidden = !live;
     } catch (e) {
