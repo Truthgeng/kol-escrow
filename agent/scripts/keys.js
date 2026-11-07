@@ -23,14 +23,15 @@ export function setup(seed = process.env.KEY_SEED) {
   return {
     network: "testnet",
     accounts: {
-      escrow: { id: name("escrow"), ...keyFromSeed(seed, "escrow") },
+      // v2: storage deposits and the campaign start check. v1 stays on testnet as history.
+      escrow: { id: name("escrow2"), ...keyFromSeed(seed, "escrow-v2") },
       token: { id: name("tusdc"), ...keyFromSeed(seed, "token") },
-      agent: { id: name("agent"), ...keyFromSeed(seed, "agent-full") },
+      agent: { id: name("agent2"), ...keyFromSeed(seed, "agent-full-v2") },
       project: { id: name("project"), ...keyFromSeed(seed, "demo-project") },
       kolA: { id: name("kola"), ...keyFromSeed(seed, "demo-kol-a") },
       kolB: { id: name("kolb"), ...keyFromSeed(seed, "demo-kol-b") },
     },
     // The only key the agent runs with: can call record_post, release, refund on the escrow. Nothing else.
-    agentCallKey: keyFromSeed(seed, "agent-call"),
+    agentCallKey: keyFromSeed(seed, "agent-call-v2"),
   };
 }

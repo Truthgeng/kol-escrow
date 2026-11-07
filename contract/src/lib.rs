@@ -20,6 +20,8 @@ const GAS_FT_TRANSFER: Gas = Gas::from_tgas(10);
 const GAS_CALLBACK: Gas = Gas::from_tgas(10);
 const ONE_YOCTO: NearToken = NearToken::from_yoctonear(1);
 const SEC: u64 = 1_000_000_000;
+/// Extra storage held back per deal for the agent's verdict records (up to three, about 500 bytes each).
+const VERDICT_RESERVE_BYTES: u64 = 1_500;
 
 pub type CampaignId = u64;
 pub type DealId = u64;
@@ -66,6 +68,8 @@ pub struct Campaign {
     pub title: String,
     /// Text the post must contain, for example a hashtag or @mention.
     pub required_text: String,
+    /// When the campaign was created (ns). Posts made before this don't count.
+    pub created_at: U64,
     /// Latest time the post may go up (ns).
     pub deadline: U64,
     /// How long the post must stay up (seconds).
@@ -120,6 +124,8 @@ impl Contract {
 
     // ---------- project side ----------
 
+    /// The caller pays for the storage the campaign uses. Attach about 0.01 NEAR; the rest is refunded.
+    #[payable]
     pub fn create_campaign(
         &mut self,
         token: AccountId,
@@ -131,6 +137,8 @@ impl Contract {
         require!(deadline.0 > env::block_timestamp(), "Deadline must be in the future");
         require!(hold_secs.0 > 0, "Hold window must be above zero");
         require!(title.len() <= 120 && required_text.len() <= 120, "Text too long");
+        require!(!required_text.trim().is_empty(), "Required text can't be empty");
+        let start = env::storage_usage();
         let id = self.next_campaign;
         self.next_campaign += 1;
         self.campaigns.insert(
@@ -141,6 +149,7 @@ impl Contract {
                 token,
                 title,
                 required_text,
+                created_at: U64(env::block_timestamp()),
                 deadline,
                 hold_secs,
                 unallocated: U128(0),
@@ -148,11 +157,15 @@ impl Contract {
             },
         );
         env::log_str(&format!("EVENT campaign_created {}", id));
+        self.flush();
+        charge_storage(start, 0);
         id
     }
 
     /// Ties part of the funded balance to one KOL. Once added, the project can't pull it back
     /// except through an agent refund or the no-post timeout.
+    /// The project pays the storage, plus a reserve for the agent's records. Attach about 0.02 NEAR.
+    #[payable]
     pub fn add_deal(
         &mut self,
         campaign_id: CampaignId,
@@ -167,6 +180,7 @@ impl Contract {
         require!(c.unallocated.0 >= fee.0, "Not enough unallocated funds");
         let handle = kol_handle.trim_start_matches('@').to_lowercase();
         require!(!handle.is_empty() && handle.len() <= 15, "Bad X handle");
+        let start = env::storage_usage();
 
         let id = self.next_deal;
         self.next_deal += 1;
@@ -192,6 +206,8 @@ impl Contract {
         list.push(id);
         self.deals_by_kol.insert(kol_account, list);
         env::log_str(&format!("EVENT deal_added {}", id));
+        self.flush();
+        charge_storage(start, VERDICT_RESERVE_BYTES);
         id
     }
 
@@ -227,6 +243,7 @@ impl Contract {
         let c = self.campaign(d.campaign_id);
         require!(d.state == DealState::Pending, "Deal is not pending");
         require!(posted_at.0 <= c.deadline.0, "Post went up after the deadline");
+        require!(posted_at.0 >= c.created_at.0, "Post went up before the campaign started");
         require!(posted_at.0 <= env::block_timestamp(), "Post time is in the future");
         require!(!post_id.is_empty() && post_id.len() <= 32, "Bad post id");
         d.post_id = Some(post_id);
@@ -403,6 +420,21 @@ struct FundMsg {
     campaign_id: CampaignId,
 }
 
+/// Makes the caller pay for the storage this call added (plus `reserve` bytes) and refunds the rest.
+fn charge_storage(start: u64, reserve: u64) {
+    let used = env::storage_usage().saturating_sub(start) + reserve;
+    let cost = env::storage_byte_cost().saturating_mul(used as u128);
+    let attached = env::attached_deposit();
+    require!(
+        attached >= cost,
+        format!("Attach at least {} yoctoNEAR to pay for storage", cost.as_yoctonear())
+    );
+    let refund = attached.saturating_sub(cost);
+    if !refund.is_zero() {
+        Promise::new(env::predecessor_account_id()).transfer(refund).detach();
+    }
+}
+
 fn push_verdict(d: &mut Deal, action: &str, reason: String, attestation: String) {
     require!(reason.len() <= 500 && attestation.len() <= 400, "Verdict text too long");
     d.verdicts.push(Verdict {
@@ -414,6 +446,13 @@ fn push_verdict(d: &mut Deal, action: &str, reason: String, attestation: String)
 }
 
 impl Contract {
+    /// Writes cached collection changes to storage now, so storage_usage() counts them.
+    fn flush(&mut self) {
+        self.campaigns.flush();
+        self.deals.flush();
+        self.deals_by_kol.flush();
+    }
+
     fn only_agent(&self) {
         require!(env::predecessor_account_id() == self.agent, "Only the agent");
     }
@@ -476,10 +515,15 @@ mod tests {
     }
 
     fn ctx(pred: &str, ts: u64) {
+        ctx_dep(pred, ts, 50_000_000_000_000_000_000_000); // 0.05 NEAR, more than any call needs
+    }
+
+    fn ctx_dep(pred: &str, ts: u64, yocto: u128) {
         testing_env!(VMContextBuilder::new()
             .current_account_id(acc("escrow.near"))
             .predecessor_account_id(acc(pred))
             .block_timestamp(ts)
+            .attached_deposit(NearToken::from_yoctonear(yocto))
             .build());
     }
 
@@ -494,6 +538,51 @@ mod tests {
         ctx("project.near", 0);
         c.add_deal(id, "@Alice".into(), acc("alice.near"), U128(100));
         c
+    }
+
+    #[test]
+    #[should_panic(expected = "pay for storage")]
+    fn deal_needs_storage_deposit() {
+        let mut c = setup();
+        ctx_dep("project.near", 0, 0);
+        c.add_deal(0, "bob".into(), acc("bob.near"), U128(50));
+    }
+
+    #[test]
+    #[should_panic(expected = "pay for storage")]
+    fn campaign_needs_storage_deposit() {
+        let mut c = setup();
+        ctx_dep("project.near", 0, 0);
+        c.create_campaign(acc("usdc.near"), "Spam".into(), "#x".into(), U64(3 * DAY), U64(60));
+    }
+
+    #[test]
+    #[should_panic(expected = "before the campaign started")]
+    fn old_post_rejected() {
+        ctx("owner.near", 0);
+        let mut c = Contract::new(acc("agent.near"), U64(86_400));
+        ctx("project.near", 2 * DAY);
+        c.create_campaign(acc("usdc.near"), "Launch".into(), "#Launch".into(), U64(5 * DAY), U64(60));
+        ctx("usdc.near", 2 * DAY);
+        c.ft_on_transfer(acc("project.near"), U128(100), "{\"campaign_id\": 0}".into());
+        ctx("project.near", 2 * DAY);
+        c.add_deal(0, "alice".into(), acc("alice.near"), U128(100));
+        ctx("agent.near", 3 * DAY);
+        c.record_post(0, "1".into(), U64(DAY), "old post".into(), "".into());
+    }
+
+    #[test]
+    fn storage_costs_stay_small() {
+        let before = env::storage_usage();
+        let mut c = setup();
+        let used = env::storage_usage() - before;
+        // campaign + deal + reserve, measured: keep the app's attached deposits above this
+        assert!(used < 2_500, "campaign + deal used {} bytes", used);
+        ctx("project.near", 0);
+        let s0 = env::storage_usage();
+        c.add_deal(0, "a_very_long_hd".into(), acc("a-fairly-long-kol-account-name.near"), U128(10));
+        let deal_bytes = env::storage_usage() - s0;
+        assert!(deal_bytes + VERDICT_RESERVE_BYTES < 2_000, "deal used {} bytes", deal_bytes);
     }
 
     #[test]

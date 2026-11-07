@@ -7,7 +7,7 @@
 
 import { writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { Account, JsonRpcProvider, teraToGas } from "near-api-js";
+import { Account, JsonRpcProvider, teraToGas, nearToYocto } from "near-api-js";
 import { setup } from "./keys.js";
 
 const provider = new JsonRpcProvider({ url: process.env.NEAR_RPC_URL || "https://test.rpc.fastnear.com" });
@@ -32,7 +32,7 @@ const campaignId = await call(A.escrow.id, "create_campaign", {
   required_text: tag,
   deadline: deadline.toString(),
   hold_secs: String(HOLD),
-});
+}, nearToYocto("0.01"));
 info(`campaign ${campaignId}, required text ${tag}, hold ${HOLD}s`);
 
 step("2. Project funds the escrow and locks 100 tUSDC per KOL");
@@ -41,12 +41,19 @@ await call(A.token.id, "ft_transfer_call", {
   amount: (2n * fee).toString(),
   msg: JSON.stringify({ campaign_id: campaignId }),
 }, 1n);
-const dealA = await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "kol_a_demo", kol_account: A.kolA.id, fee: fee.toString() });
-const dealB = await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "kol_b_demo", kol_account: A.kolB.id, fee: fee.toString() });
+const dealA = await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "kol_a_demo", kol_account: A.kolA.id, fee: fee.toString() }, nearToYocto("0.025"));
+const dealB = await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "kol_b_demo", kol_account: A.kolB.id, fee: fee.toString() }, nearToYocto("0.025"));
+
+step("2b. Storage rules: a deal with no storage deposit is refused");
+let refused = false;
+try { await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "spam", kol_account: A.kolB.id, fee: "1" }); } catch { refused = true; }
+expect(refused, "add_deal without a storage deposit fails"); 
 expect((await bal(A.project.id)) === before.project - 2n * fee, "project paid 200 into escrow");
 
 step("3. Both KOLs post. Agent confirms both posts on-chain");
-const postedAt = new Date(Date.now() - 30_000).toISOString();
+// Posted a few seconds after the campaign started (the contract rejects older posts).
+const camp = await view(A.escrow.id, "get_campaign", { campaign_id: campaignId });
+const postedAt = new Date(Math.min(Date.now() - 2_000, Number(BigInt(camp.created_at) / 1_000_000n) + 3_000)).toISOString();
 const fixture = {
   posts: [
     { id: "9000000000000000001", handle: "kol_a_demo", text: `Locked payouts for KOLs ${tag}`, created_at: postedAt, deleted: false },

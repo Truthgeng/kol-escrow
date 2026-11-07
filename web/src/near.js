@@ -4,7 +4,7 @@ import { NearConnector } from "@hot-labs/near-connect";
 
 export const CONFIG = {
   network: import.meta.env.VITE_NETWORK || "testnet",
-  escrow: import.meta.env.VITE_ESCROW || "kolescrow-1c4994.testnet",
+  escrow: import.meta.env.VITE_ESCROW || "kolescrow2-1c4994.testnet",
   token: import.meta.env.VITE_TOKEN || "koltusdc-1c4994.testnet",
   rpc: import.meta.env.VITE_RPC || "https://test.rpc.fastnear.com",
   explorer: import.meta.env.VITE_EXPLORER || "https://testnet.nearblocks.io",
@@ -12,6 +12,7 @@ export const CONFIG = {
 export const isTestToken = CONFIG.network === "testnet";
 
 const TGAS = "000000000000";
+const STORAGE = { campaign: "10000000000000000000000", deal: "25000000000000000000000" }; // 0.01 and 0.025 NEAR
 
 export async function view(contractId, method, args = {}) {
   const res = await fetch(CONFIG.rpc, {
@@ -99,14 +100,15 @@ function returnValue(o) {
 
 export const tx = {
   mint: (account, amount) => ({ receiverId: CONFIG.token, actions: [fc("mint", { account_id: account, amount }, 30)] }),
-  createCampaign: (a) => ({ receiverId: CONFIG.escrow, actions: [fc("create_campaign", a, 30)] }),
+  // Storage is paid by the caller; the contract refunds whatever isn't used.
+  createCampaign: (a) => ({ receiverId: CONFIG.escrow, actions: [fc("create_campaign", a, 30, STORAGE.campaign)] }),
   fund: (campaignId, amount, token = CONFIG.token) => ({
     receiverId: token,
     actions: [fc("ft_transfer_call", { receiver_id: CONFIG.escrow, amount, msg: JSON.stringify({ campaign_id: campaignId }) }, 100, "1")],
   }),
   addDeal: (campaignId, kol_handle, kol_account, fee) => ({
     receiverId: CONFIG.escrow,
-    actions: [fc("add_deal", { campaign_id: campaignId, kol_handle, kol_account, fee }, 30)],
+    actions: [fc("add_deal", { campaign_id: campaignId, kol_handle, kol_account, fee }, 30, STORAGE.deal)],
   }),
   refundExpired: (dealId) => ({ receiverId: CONFIG.escrow, actions: [fc("refund_expired", { deal_id: dealId })] }),
   releaseTimeout: (dealId) => ({ receiverId: CONFIG.escrow, actions: [fc("release_timeout", { deal_id: dealId })] }),

@@ -47,8 +47,9 @@ async function handle(campaign, deal) {
   let judgement = null;
 
   if (deal.state === "Pending") {
-    // Only posts made after the campaign was set up count. X search covers the last 7 days.
-    const since = new Date(Math.max(Date.now() - 6.9 * 86_400_000, 0)).toISOString();
+    // Only posts made after the campaign was created count. X recent search covers the last 7 days.
+    const startedMs = Number(BigInt(campaign.created_at || 0) / 1_000_000n);
+    const since = new Date(Math.max(Date.now() - 6.9 * 86_400_000, startedMs)).toISOString();
     const candidate = await x.findPost(deal.kol_handle, campaign.required_text, since);
     seen.candidate = candidate;
     if (candidate) {

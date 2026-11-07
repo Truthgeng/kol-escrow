@@ -22,7 +22,8 @@ export function decide({ deal, campaign, nowNs, seen, judgement, rules }) {
 
   if (deal.state === "Pending") {
     const c = seen?.candidate;
-    if (c && c.authorHandle?.toLowerCase() === deal.kol_handle && c.createdAtNs <= deadline) {
+    const started = BigInt(campaign.created_at || 0);
+    if (c && c.authorHandle?.toLowerCase() === deal.kol_handle && c.createdAtNs <= deadline && c.createdAtNs >= started) {
       if (judgement?.meetsTerms) {
         return {
           action: "record_post",

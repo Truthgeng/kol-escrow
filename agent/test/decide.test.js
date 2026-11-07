@@ -7,7 +7,7 @@ import { rulesJudge } from "../src/judge.js";
 const S = 1_000_000_000n;
 const DAY = 86_400n * S;
 const rules = { maxBotShare: 0.6 };
-const campaign = { deadline: (10n * DAY).toString(), hold_secs: (7 * 86_400).toString(), title: "Launch", required_text: "#Launch" };
+const campaign = { created_at: DAY.toString(), deadline: (10n * DAY).toString(), hold_secs: (7 * 86_400).toString(), title: "Launch", required_text: "#Launch" };
 const pending = { id: 0, state: "Pending", kol_handle: "alice" };
 const posted = { id: 0, state: "Posted", kol_handle: "alice", post_id: "1", posted_at: (2n * DAY).toString() };
 const post = (over = {}) => ({ id: "1", text: "gm #Launch", createdAtNs: 2n * DAY, authorHandle: "alice", ...over });
@@ -16,6 +16,11 @@ test("records a post that meets the terms", () => {
   const r = decide({ deal: pending, campaign, nowNs: 3n * DAY, seen: { candidate: post() }, judgement: { meetsTerms: true, reason: "ok" }, rules });
   assert.equal(r.action, "record_post");
   assert.equal(r.args.post_id, "1");
+});
+
+test("ignores a post made before the campaign started", () => {
+  const r = decide({ deal: pending, campaign, nowNs: 3n * DAY, seen: { candidate: post({ createdAtNs: DAY / 2n }) }, judgement: { meetsTerms: true }, rules });
+  assert.equal(r.action, "wait");
 });
 
 test("ignores a post by someone else", () => {
