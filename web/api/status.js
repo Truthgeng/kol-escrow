@@ -6,6 +6,6 @@ export default async function handler(req, res) {
   const qs = new URLSearchParams({ depositAddress });
   if (depositMemo) qs.set("depositMemo", depositMemo);
   const { status, body } = await oneclick(`/status?${qs}`);
-  if (status !== 200) return send(res, status, { error: body?.message || "Status not available yet" });
+  if (status < 200 || status > 299) return send(res, status, { error: body?.message || "Status not available yet" });
   send(res, 200, { status: body.status, updatedAt: body.updatedAt, swapDetails: body.swapDetails });
 }

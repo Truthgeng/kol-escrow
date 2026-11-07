@@ -308,9 +308,9 @@ async function mePage() {
 
 // ---------- cash out on another chain (NEAR Intents 1Click) ----------
 
-const CHAINS = { eth: "Ethereum", base: "Base", arb: "Arbitrum", op: "Optimism", pol: "Polygon", bsc: "BNB Chain", avax: "Avalanche", sol: "Solana", tron: "Tron", ton: "TON", sui: "Sui", aptos: "Aptos", gnosis: "Gnosis", bera: "Berachain", stellar: "Stellar" };
+const CHAINS = { eth: "Ethereum", base: "Base", arb: "Arbitrum", op: "Optimism", pol: "Polygon", bsc: "BNB Chain", avax: "Avalanche", sol: "Solana", tron: "Tron", ton: "TON", sui: "Sui", aptos: "Aptos", gnosis: "Gnosis", bera: "Berachain", stellar: "Stellar", monad: "Monad", xlayer: "X Layer", scroll: "Scroll", hypercore: "Hyperliquid", miden: "Miden" };
 const chainName = (b) => CHAINS[b] || String(b).toUpperCase();
-const EVM = new Set(["eth", "base", "arb", "op", "pol", "bsc", "avax", "gnosis", "bera"]);
+const EVM = new Set(["eth", "base", "arb", "op", "pol", "bsc", "avax", "gnosis", "bera", "monad", "xlayer", "scroll", "hypercore"]);
 function addressOk(chain, a) {
   if (EVM.has(chain)) return /^0x[0-9a-fA-F]{40}$/.test(a);
   if (chain === "sol") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
@@ -357,7 +357,9 @@ function wirePayout(p, nearUsdc) {
     const opt = sel.selectedOptions[0];
     return { dest: sel.value, chain: opt?.dataset.chain, dec: Number(opt?.dataset.dec), sym: opt?.dataset.sym, addr: p.querySelector('[name="addr"]').value.trim() };
   };
-  const params = (v, dry) => ({ dry, originAsset: origin, destinationAsset: v.dest, amount: p.dataset.amount, refundTo: currentAccount(), recipient: v.addr });
+  // Refunds go back to the KOL's own account. A testnet account doesn't exist on mainnet, so the
+  // testnet preview (a dry quote that moves nothing) uses a placeholder mainnet account instead.
+  const params = (v, dry) => ({ dry, originAsset: origin, destinationAsset: v.dest, amount: p.dataset.amount, refundTo: live ? currentAccount() : "intents.near", recipient: v.addr });
   const check = (v) => {
     if (!origin) throw new Error("NEAR Intents doesn't list this token as a source");
     if (!v.dest) throw new Error("Choose where you want to receive it");

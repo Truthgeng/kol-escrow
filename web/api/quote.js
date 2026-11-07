@@ -31,6 +31,6 @@ export default async function handler(req, res) {
     quoteWaitingTimeMs: 3000,
   };
   const { status, body } = await oneclick("/quote", { method: "POST", body: JSON.stringify(request) });
-  if (status !== 200) return send(res, status === 401 ? 502 : status, { error: body?.message || "NEAR Intents couldn't quote this route" });
+  if (status < 200 || status > 299) return send(res, status === 401 ? 502 : status, { error: body?.message || "NEAR Intents couldn't quote this route" });
   send(res, 200, body);
 }
