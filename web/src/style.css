@@ -235,6 +235,20 @@ h2 { font-family: var(--display); font-size: 1.15rem; font-weight: 600; margin: 
 .att { font-size: 0.85rem; color: var(--ink-2); }
 code { font-size: 0.85em; background: rgba(143, 179, 168, 0.12); padding: 1px 6px; border-radius: 5px; }
 
+/* ---------- cash out panel ---------- */
+.payout { margin: -6px 0 26px; padding: 18px 22px; border: 1px dashed rgba(47, 243, 192, 0.35); border-radius: 0 0 18px 18px; background: rgba(3, 21, 21, 0.6); }
+.payout h3 { margin: 0 0 4px; font-size: 1rem; }
+.payout-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; margin-top: 12px; }
+.payout label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 0.9rem; min-width: 0; }
+.payout input, .payout select { font: inherit; font-weight: 400; color: var(--ink); background: rgba(2, 10, 9, 0.7); border: 1px solid var(--rim); border-radius: 12px; padding: 10px 12px; min-width: 0; width: 100%; }
+.payout input:focus, .payout select:focus { border-color: var(--near); outline: none; }
+.payout-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.payout-actions .btn.outline { margin-top: 12px; }
+.payout-actions .btn:not(.outline) { margin-top: 12px; padding: 8px 18px; }
+.quote { margin: 12px 0 0; }
+.quote:empty { display: none; }
+@media (max-width: 600px) { .payout-row { grid-template-columns: 1fr; } }
+
 /* ---------- lists, campaign page ---------- */
 .campaigns { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--rim); }
 .campaigns a { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 16px 4px; border-bottom: 1px solid var(--rim); text-decoration: none; }

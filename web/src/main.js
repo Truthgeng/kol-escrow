@@ -1,7 +1,7 @@
 import "./style.css";
 import {
   CONFIG, isTestToken, view, initWallet, onAccount, currentAccount, signIn, signOut, send, tx,
-  tokenInfo, fromUnits, toUnits, nsToMs, msToNs,
+  tokenInfo, fromUnits, toUnits, nsToMs, msToNs, intents,
 } from "./near.js";
 
 const app = document.getElementById("app");
@@ -296,11 +296,112 @@ async function mePage() {
   const parts = [];
   for (const d of deals.reverse()) {
     const c = camps.get(d.campaign_id);
-    parts.push(`<p class="muted"><a href="#/c/${c.id}">${esc(c.title)}</a>, post must include ${esc(c.required_text)}</p>` + ticket(d, c, await tokenInfo(c.token), now));
+    const tk = await tokenInfo(c.token);
+    parts.push(`<p class="muted"><a href="#/c/${c.id}">${esc(c.title)}</a>, post must include ${esc(c.required_text)}</p>` + ticket(d, c, tk, now) +
+      (d.state === "Released" ? payoutPanel(d, c, tk) : ""));
   }
   app.innerHTML = `<section><h1>My deals</h1><p class="muted">${esc(me)}</p></section>
     <section class="tickets">${parts.join("") || "<p>No deals for this account yet. Share your NEAR account with the project so they can lock your fee.</p>"}</section>`;
   wireTxButtons(app, mePage);
+  wirePayouts(app);
+}
+
+// ---------- cash out on another chain (NEAR Intents 1Click) ----------
+
+const CHAINS = { eth: "Ethereum", base: "Base", arb: "Arbitrum", op: "Optimism", pol: "Polygon", bsc: "BNB Chain", avax: "Avalanche", sol: "Solana", tron: "Tron", ton: "TON", sui: "Sui", aptos: "Aptos", gnosis: "Gnosis", bera: "Berachain", stellar: "Stellar" };
+const chainName = (b) => CHAINS[b] || String(b).toUpperCase();
+const EVM = new Set(["eth", "base", "arb", "op", "pol", "bsc", "avax", "gnosis", "bera"]);
+function addressOk(chain, a) {
+  if (EVM.has(chain)) return /^0x[0-9a-fA-F]{40}$/.test(a);
+  if (chain === "sol") return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a);
+  return a.length >= 10 && a.length <= 120 && !/\s/.test(a);
+}
+
+function payoutPanel(d, c, tk) {
+  return `
+  <div class="payout" data-amount="${esc(d.fee)}" data-token="${esc(c.token)}" data-decimals="${tk.decimals}">
+    <h3>Cash out on another chain</h3>
+    <p class="muted">Your ${fromUnits(d.fee, tk.decimals)} ${esc(tk.symbol)} is in your NEAR account. Swap and send it to another chain in one step with NEAR Intents.</p>
+    <div class="payout-row">
+      <label>Receive<select name="dest"><option value="">Loading routes…</option></select></label>
+      <label>Your address on that chain<input name="addr" autocomplete="off" spellcheck="false" placeholder="0x… or wallet address"></label>
+    </div>
+    <div class="payout-actions"><button class="btn outline" data-act="quote" type="button">Get a quote</button><button class="btn" data-act="send" type="button" hidden>Send it</button></div>
+    <p class="quote" aria-live="polite"></p>
+  </div>`;
+}
+
+function wirePayouts(root) {
+  const panels = root.querySelectorAll(".payout");
+  if (!panels.length) return;
+  intents.tokens().then((tokens) => {
+    const nearUsdc = tokens.find((t) => t.blockchain === "near" && t.symbol === "USDC");
+    const dests = tokens.filter((t) => t.blockchain !== "near").sort((a, b) => chainName(a.blockchain).localeCompare(chainName(b.blockchain)) || a.symbol.localeCompare(b.symbol));
+    panels.forEach((p) => {
+      p.querySelector('[name="dest"]').innerHTML = `<option value="">Choose a token and chain</option>` +
+        dests.map((t) => `<option value="${esc(t.assetId)}" data-chain="${esc(t.blockchain)}" data-dec="${t.decimals}" data-sym="${esc(t.symbol)}">${esc(t.symbol)} on ${esc(chainName(t.blockchain))}</option>`).join("");
+      wirePayout(p, nearUsdc);
+    });
+  }).catch((e) => panels.forEach((p) => (p.querySelector(".quote").textContent = e.message)));
+}
+
+function wirePayout(p, nearUsdc) {
+  const out = p.querySelector(".quote");
+  const sendBtn = p.querySelector('[data-act="send"]');
+  const live = CONFIG.network === "mainnet";
+  // On mainnet the payout token itself goes into 1Click. On testnet, tUSDC isn't supported, so
+  // the quote is a preview priced with real USDC on NEAR and sending is switched off.
+  const origin = live ? `nep141:${p.dataset.token}` : nearUsdc?.assetId;
+  const read = () => {
+    const sel = p.querySelector('[name="dest"]');
+    const opt = sel.selectedOptions[0];
+    return { dest: sel.value, chain: opt?.dataset.chain, dec: Number(opt?.dataset.dec), sym: opt?.dataset.sym, addr: p.querySelector('[name="addr"]').value.trim() };
+  };
+  const params = (v, dry) => ({ dry, originAsset: origin, destinationAsset: v.dest, amount: p.dataset.amount, refundTo: currentAccount(), recipient: v.addr });
+  const check = (v) => {
+    if (!origin) throw new Error("NEAR Intents doesn't list this token as a source");
+    if (!v.dest) throw new Error("Choose where you want to receive it");
+    if (!addressOk(v.chain, v.addr)) throw new Error(`That doesn't look like a ${chainName(v.chain)} address`);
+  };
+  p.querySelector('[data-act="quote"]').addEventListener("click", async () => {
+    const v = read();
+    try {
+      check(v);
+      out.textContent = "Asking NEAR Intents for a price…";
+      const q = (await intents.quote(params(v, true))).quote;
+      out.innerHTML = `You'd receive about <b>${esc(q.amountOutFormatted)} ${esc(v.sym)}</b> on ${esc(chainName(v.chain))}, at least ${esc(fromUnits(q.minAmountOut, v.dec))} after slippage. Usually arrives in about ${Math.max(1, Math.round(q.timeEstimate / 60))} min.` +
+        (live ? "" : `<br><span class="muted">Testnet preview: priced with real USDC on NEAR mainnet. Sending works once the escrow runs on mainnet.</span>`);
+      sendBtn.hidden = !live;
+    } catch (e) {
+      out.textContent = e.message;
+      sendBtn.hidden = true;
+    }
+  });
+  sendBtn.addEventListener("click", async () => {
+    const v = read();
+    try {
+      check(v);
+      sendBtn.disabled = true;
+      out.textContent = "Locking in the quote…";
+      const q = (await intents.quote(params(v, false))).quote;
+      if (!q.depositAddress) throw new Error("NEAR Intents didn't return a deposit address. Try again.");
+      out.textContent = "Confirm the transfer in your wallet…";
+      await send([tx.payout(p.dataset.token, q.depositAddress, p.dataset.amount, q.depositMemo)]);
+      out.textContent = "Sent. Waiting for NEAR Intents to deliver…";
+      for (let i = 0; i < 120; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const s = await intents.status(q.depositAddress, q.depositMemo);
+        const words = { PENDING_DEPOSIT: "Waiting to see your deposit…", KNOWN_DEPOSIT_TX: "Deposit seen…", PROCESSING: "Swapping and sending…", SUCCESS: `Delivered to your ${chainName(v.chain)} address.`, REFUNDED: "The route failed and your tokens were refunded to your NEAR account.", FAILED: "The route failed. Check your NEAR account; a refund follows automatically.", INCOMPLETE_DEPOSIT: "The deposit was short. A refund follows automatically." };
+        out.textContent = words[s.status] || `Status: ${s.status}`;
+        if (["SUCCESS", "REFUNDED", "FAILED"].includes(s.status)) break;
+      }
+    } catch (e) {
+      toastError(e);
+      out.textContent = "";
+    } finally {
+      sendBtn.disabled = false;
+    }
+  });
 }
 
 function duration(s) {

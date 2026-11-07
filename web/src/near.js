@@ -112,6 +112,15 @@ export const tx = {
   }),
   refundExpired: (dealId) => ({ receiverId: CONFIG.escrow, actions: [fc("refund_expired", { deal_id: dealId })] }),
   releaseTimeout: (dealId) => ({ receiverId: CONFIG.escrow, actions: [fc("release_timeout", { deal_id: dealId })] }),
+  // Cash out through NEAR Intents: register the 1Click deposit address on the token (refunded if
+  // already registered), then send the tokens to it. 1Click swaps and delivers on the chosen chain.
+  payout: (token, depositAddress, amount, memo) => ({
+    receiverId: token,
+    actions: [
+      fc("storage_deposit", { account_id: depositAddress, registration_only: true }, 10, "1250000000000000000000"),
+      fc("ft_transfer", memo ? { receiver_id: depositAddress, amount, memo } : { receiver_id: depositAddress, amount }, 30, "1"),
+    ],
+  }),
   withdraw: (campaignId) => ({ receiverId: CONFIG.escrow, actions: [fc("withdraw_unallocated", { campaign_id: campaignId })] }),
 };
 
@@ -137,5 +146,26 @@ export function toUnits(text, decimals) {
   if (!/^\d+$/.test(w || "0") || !/^\d*$/.test(f)) throw new Error("Enter a plain number, like 150 or 99.5");
   return (BigInt(w || "0") * 10n ** BigInt(decimals) + BigInt((f + "0".repeat(decimals)).slice(0, decimals) || "0")).toString();
 }
+// ---------- NEAR Intents (1Click) through the app's own /api routes ----------
+
+export const intents = {
+  async tokens() {
+    if (!intents._t) intents._t = fetch("/api/tokens").then((r) => (r.ok ? r.json() : Promise.reject(new Error("NEAR Intents token list unavailable"))));
+    return intents._t;
+  },
+  async quote(params) {
+    const r = await fetch("/api/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) });
+    const b = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(b.error || "Couldn't get a quote");
+    return b;
+  },
+  async status(depositAddress, depositMemo) {
+    const qs = new URLSearchParams({ depositAddress });
+    if (depositMemo) qs.set("depositMemo", depositMemo);
+    const r = await fetch(`/api/status?${qs}`);
+    return r.ok ? r.json() : { status: "PENDING_DEPOSIT" };
+  },
+};
+
 export const nsToMs = (ns) => Number(BigInt(ns) / 1_000_000n);
 export const msToNs = (ms) => (BigInt(Math.floor(ms)) * 1_000_000n).toString();
