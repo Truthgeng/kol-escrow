@@ -1,0 +1,16 @@
+{
+  "name": "kol-escrow-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^6.4.5"
+  },
+  "dependencies": {
+    "@hot-labs/near-connect": "^0.12.0"
+  }
+}
