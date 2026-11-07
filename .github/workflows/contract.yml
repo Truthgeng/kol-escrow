@@ -1,7 +1,7 @@
 name: contract
 on:
   push:
-    paths: ["contract/**", ".github/workflows/contract.yml"]
+    paths: ["contract/**", "test-token/**", ".github/workflows/contract.yml"]
   workflow_dispatch:
 jobs:
   build:
@@ -15,7 +15,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - name: Unit tests
-        run: cargo test
+        run: cargo test && (cd ../test-token && cargo test)
       - name: Install cargo-near
         run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
       - name: Build wasm

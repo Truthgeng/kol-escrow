@@ -10,11 +10,13 @@ import { makeJudge } from "./judge.js";
 import { makeChain } from "./chain.js";
 
 const env = process.env;
+// On testnet the whole setup can come from one secret, KEY_SEED (see scripts/keys.js).
+const derived = !env.ESCROW_CONTRACT && env.KEY_SEED ? (await import("../scripts/keys.js")).setup() : null;
 const cfg = {
   network: env.NEAR_NETWORK || "testnet",
-  contractId: required("ESCROW_CONTRACT"),
-  agentId: env.AGENT_ACCOUNT,
-  agentKey: env.AGENT_PRIVATE_KEY,
+  contractId: derived ? derived.accounts.escrow.id : required("ESCROW_CONTRACT"),
+  agentId: derived ? derived.accounts.agent.id : env.AGENT_ACCOUNT,
+  agentKey: derived ? derived.agentCallKey.secret : env.AGENT_PRIVATE_KEY,
   dryRun: env.DRY_RUN === "1",
   xMode: env.X_MODE || "api",
   maxBotShare: Number(env.MAX_BOT_SHARE || 0.6),

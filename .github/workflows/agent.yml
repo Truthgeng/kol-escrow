@@ -12,7 +12,6 @@ concurrency: agent
 jobs:
   run:
     runs-on: ubuntu-latest
-    if: vars.ESCROW_CONTRACT != ''
     defaults:
       run:
         working-directory: agent
@@ -25,6 +24,7 @@ jobs:
       - run: npm test
       - name: Run one pass
         env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
           NEAR_NETWORK: ${{ vars.NEAR_NETWORK }}
           ESCROW_CONTRACT: ${{ vars.ESCROW_CONTRACT }}
           AGENT_ACCOUNT: ${{ vars.AGENT_ACCOUNT }}
@@ -34,4 +34,7 @@ jobs:
           NEARAI_API_KEY: ${{ secrets.NEARAI_API_KEY }}
           NEARAI_MODEL: ${{ vars.NEARAI_MODEL }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
-        run: node src/run.js
+        run: |
+          if [ -z "$ESCROW_CONTRACT$KEY_SEED" ]; then echo "Not deployed yet, skipping"; exit 0; fi
+          if [ "$X_MODE" != "fixture" ] && [ -z "$X_BEARER_TOKEN" ]; then echo "No X_BEARER_TOKEN secret yet, skipping"; exit 0; fi
+          node src/run.js
