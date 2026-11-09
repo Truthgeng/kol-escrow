@@ -5,12 +5,16 @@
 //! The agent can only do three things: record a post, release to the KOL's
 //! registered account, or refund the project. It can never send funds anywhere else.
 //!
+//! Projects can add a deal for a KOL they already know, or post a funded campaign and let
+//! KOLs apply. Accepting an application locks the KOL's asked fee into a deal from the
+//! campaign's funded balance, so a project can only accept what it has already locked up.
+//!
 //! Two timeouts make it trustless in both directions:
 //! - no post recorded by deadline + grace  -> anyone can refund the project
 //! - post recorded, agent silent after hold + grace -> anyone can release to the KOL
 
 use near_sdk::json_types::{U128, U64};
-use near_sdk::store::LookupMap;
+use near_sdk::store::{LookupMap, LookupSet};
 use near_sdk::{
     env, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault, Promise,
     PromiseError, PromiseOrValue,
@@ -32,6 +36,41 @@ enum Key {
     Campaigns,
     Deals,
     DealsByKol,
+    Applications,
+    AppsByCampaign,
+    AppsByKol,
+    UsedPosts,
+}
+
+pub type AppId = u64;
+
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum AppState {
+    /// Waiting for the project.
+    Open,
+    /// The project took it; the fee is locked in deal `deal_id`.
+    Accepted,
+    Rejected,
+    /// The KOL pulled it back.
+    Withdrawn,
+}
+
+/// A KOL asking to join a campaign. Nothing is locked until the project accepts.
+#[near(serializers = [borsh, json])]
+#[derive(Clone, Debug)]
+pub struct Application {
+    pub id: AppId,
+    pub campaign_id: CampaignId,
+    pub kol_handle: String,
+    pub kol_account: AccountId,
+    /// What the KOL asks to be paid.
+    pub fee: U128,
+    /// A short pitch: audience, past work, why they fit.
+    pub pitch: String,
+    pub state: AppState,
+    pub deal_id: Option<DealId>,
+    pub created_at: U64,
 }
 
 #[near(serializers = [borsh, json])]
@@ -107,6 +146,25 @@ pub struct Contract {
     campaigns: LookupMap<CampaignId, Campaign>,
     deals: LookupMap<DealId, Deal>,
     deals_by_kol: LookupMap<AccountId, Vec<DealId>>,
+    next_app: AppId,
+    applications: LookupMap<AppId, Application>,
+    apps_by_campaign: LookupMap<CampaignId, Vec<AppId>>,
+    apps_by_kol: LookupMap<AccountId, Vec<AppId>>,
+    /// Every post confirmed so far. One post can only ever pay one deal.
+    used_posts: LookupSet<String>,
+}
+
+/// Layout of the contract before applications existed, read once by `migrate`.
+#[near(serializers = [borsh])]
+struct ContractV4 {
+    owner: AccountId,
+    agent: AccountId,
+    grace_secs: u64,
+    next_campaign: CampaignId,
+    next_deal: DealId,
+    campaigns: LookupMap<CampaignId, Campaign>,
+    deals: LookupMap<DealId, Deal>,
+    deals_by_kol: LookupMap<AccountId, Vec<DealId>>,
 }
 
 #[near]
@@ -122,6 +180,34 @@ impl Contract {
             campaigns: LookupMap::new(Key::Campaigns),
             deals: LookupMap::new(Key::Deals),
             deals_by_kol: LookupMap::new(Key::DealsByKol),
+            next_app: 0,
+            applications: LookupMap::new(Key::Applications),
+            apps_by_campaign: LookupMap::new(Key::AppsByCampaign),
+            apps_by_kol: LookupMap::new(Key::AppsByKol),
+            used_posts: LookupSet::new(Key::UsedPosts),
+        }
+    }
+
+    /// Upgrades a deployed contract that predates applications. Keeps every campaign and deal.
+    /// Only the contract account itself can call it, right after deploying the new code.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        let old: ContractV4 = env::state_read().unwrap_or_else(|| env::panic_str("No state to migrate"));
+        Self {
+            owner: old.owner,
+            agent: old.agent,
+            grace_secs: old.grace_secs,
+            next_campaign: old.next_campaign,
+            next_deal: old.next_deal,
+            campaigns: old.campaigns,
+            deals: old.deals,
+            deals_by_kol: old.deals_by_kol,
+            next_app: 0,
+            applications: LookupMap::new(Key::Applications),
+            apps_by_campaign: LookupMap::new(Key::AppsByCampaign),
+            apps_by_kol: LookupMap::new(Key::AppsByKol),
+            used_posts: LookupSet::new(Key::UsedPosts),
         }
     }
 
@@ -176,46 +262,37 @@ impl Contract {
         kol_account: AccountId,
         fee: U128,
     ) -> DealId {
-        let mut c = self.campaign(campaign_id);
-        require!(env::predecessor_account_id() == c.project, "Only the project");
-        require!(env::block_timestamp() < c.deadline.0, "Campaign deadline has passed");
-        require!(fee.0 > 0, "Fee must be above zero");
-        require!(c.unallocated.0 >= fee.0, "Not enough unallocated funds");
-        let handle = kol_handle.trim_start_matches('@').to_ascii_lowercase();
-        require!(
-            !handle.is_empty() && handle.len() <= 15 && handle.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
-            "Bad X handle"
-        );
         let start = env::storage_usage();
-
-        let id = self.next_deal;
-        self.next_deal += 1;
-        c.unallocated = U128(c.unallocated.0 - fee.0);
-        c.deal_ids.push(id);
-        self.campaigns.insert(campaign_id, c);
-
-        self.deals.insert(
-            id,
-            Deal {
-                id,
-                campaign_id,
-                kol_handle: handle,
-                kol_account: kol_account.clone(),
-                fee,
-                state: DealState::Pending,
-                claimed_post: None,
-                post_id: None,
-                posted_at: None,
-                verdicts: vec![],
-            },
-        );
-        let mut list = self.deals_by_kol.get(&kol_account).cloned().unwrap_or_default();
-        list.push(id);
-        self.deals_by_kol.insert(kol_account, list);
-        event("deal_added", id, "");
+        let id = self.lock_deal(campaign_id, kol_handle, kol_account, fee);
         self.flush();
         charge_storage(start, VERDICT_RESERVE_BYTES);
         id
+    }
+
+    /// Takes a KOL's application: their asked fee moves from the campaign's funded balance into
+    /// a new deal, exactly as if the project had added the deal itself. Attach about 0.025 NEAR.
+    #[payable]
+    pub fn accept_application(&mut self, app_id: AppId) -> DealId {
+        let start = env::storage_usage();
+        let mut a = self.application(app_id);
+        require!(a.state == AppState::Open, "Application is not open");
+        let deal_id = self.lock_deal(a.campaign_id, a.kol_handle.clone(), a.kol_account.clone(), a.fee);
+        a.state = AppState::Accepted;
+        a.deal_id = Some(deal_id);
+        self.applications.insert(app_id, a);
+        event("application_accepted", app_id, &dec(deal_id as u128));
+        self.flush();
+        charge_storage(start, VERDICT_RESERVE_BYTES);
+        deal_id
+    }
+
+    pub fn reject_application(&mut self, app_id: AppId) {
+        let mut a = self.application(app_id);
+        require!(env::predecessor_account_id() == self.campaign(a.campaign_id).project, "Only the project");
+        require!(a.state == AppState::Open, "Application is not open");
+        a.state = AppState::Rejected;
+        self.applications.insert(app_id, a);
+        event("application_rejected", app_id, "");
     }
 
     /// Returns funds that were sent in but never tied to a deal.
@@ -253,6 +330,63 @@ impl Contract {
         event("post_submitted", deal_id, "");
     }
 
+    /// A KOL asks to join a funded campaign at their own price. Nothing is locked until the
+    /// project accepts. The KOL pays the small storage cost (about 0.01 NEAR; the rest is refunded).
+    #[payable]
+    pub fn apply(&mut self, campaign_id: CampaignId, kol_handle: String, fee: U128, pitch: String) -> AppId {
+        let c = self.campaign(campaign_id);
+        let kol = env::predecessor_account_id();
+        require!(kol != c.project, "The project can't apply to its own campaign");
+        require!(env::block_timestamp() < c.deadline.0, "Campaign deadline has passed");
+        require!(fee.0 > 0, "Fee must be above zero");
+        require!(pitch.len() <= 280, "Pitch is longer than 280 characters");
+        let handle = clean_handle(&kol_handle);
+        let start = env::storage_usage();
+        let mut list = self.apps_by_campaign.get(&campaign_id).cloned().unwrap_or_default();
+        require!(list.len() < 200, "This campaign has the most applications it can take");
+        require!(
+            !list.iter().any(|id| self
+                .applications
+                .get(id)
+                .map_or(false, |a| a.kol_account == kol && a.state == AppState::Open)),
+            "You already have an open application on this campaign"
+        );
+        let id = self.next_app;
+        self.next_app += 1;
+        list.push(id);
+        self.apps_by_campaign.insert(campaign_id, list);
+        let mut mine = self.apps_by_kol.get(&kol).cloned().unwrap_or_default();
+        mine.push(id);
+        self.apps_by_kol.insert(kol.clone(), mine);
+        self.applications.insert(
+            id,
+            Application {
+                id,
+                campaign_id,
+                kol_handle: handle,
+                kol_account: kol,
+                fee,
+                pitch,
+                state: AppState::Open,
+                deal_id: None,
+                created_at: U64(env::block_timestamp()),
+            },
+        );
+        event("applied", id, &dec(campaign_id as u128));
+        self.flush();
+        charge_storage(start, 0);
+        id
+    }
+
+    pub fn withdraw_application(&mut self, app_id: AppId) {
+        let mut a = self.application(app_id);
+        require!(env::predecessor_account_id() == a.kol_account, "Only the KOL who applied");
+        require!(a.state == AppState::Open, "Application is not open");
+        a.state = AppState::Withdrawn;
+        self.applications.insert(app_id, a);
+        event("application_withdrawn", app_id, "");
+    }
+
     // ---------- agent side ----------
 
     /// Agent confirms the post exists, matches the terms and went up before the deadline.
@@ -275,6 +409,8 @@ impl Contract {
         if let Some(claimed) = &d.claimed_post {
             require!(*claimed == post_id, "Agent must confirm the post the KOL submitted");
         }
+        // Stops one post (for example someone else's, submitted by an impostor) paying twice.
+        require!(self.used_posts.insert(post_id.clone()), "This post already counted for another deal");
         d.post_id = Some(post_id);
         d.posted_at = Some(posted_at);
         d.state = DealState::Posted;
@@ -431,6 +567,24 @@ impl Contract {
             .unwrap_or_default()
     }
 
+    pub fn get_application(&self, app_id: AppId) -> Option<Application> {
+        self.applications.get(&app_id).cloned()
+    }
+
+    pub fn get_campaign_applications(&self, campaign_id: CampaignId) -> Vec<Application> {
+        self.apps_by_campaign
+            .get(&campaign_id)
+            .map(|ids| ids.iter().filter_map(|id| self.applications.get(id).cloned()).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn get_kol_applications(&self, kol_account: AccountId) -> Vec<Application> {
+        self.apps_by_kol
+            .get(&kol_account)
+            .map(|ids| ids.iter().filter_map(|id| self.applications.get(id).cloned()).collect())
+            .unwrap_or_default()
+    }
+
     // ---------- owner ----------
 
     /// Rotate the agent account (for example if its key leaks). Owner only.
@@ -457,6 +611,16 @@ fn charge_storage(start: u64, reserve: u64) {
     if !refund.is_zero() {
         Promise::new(env::predecessor_account_id()).transfer(refund).detach();
     }
+}
+
+/// "@Some_KOL" -> "some_kol", rejecting anything that can't be an X handle.
+fn clean_handle(h: &str) -> String {
+    let handle = h.trim().trim_start_matches('@').to_ascii_lowercase();
+    require!(
+        !handle.is_empty() && handle.len() <= 15 && handle.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+        "Bad X handle"
+    );
+    handle
 }
 
 /// Decimal digits of a number without pulling in the formatting machinery.
@@ -496,6 +660,48 @@ impl Contract {
         self.campaigns.flush();
         self.deals.flush();
         self.deals_by_kol.flush();
+        self.applications.flush();
+        self.apps_by_campaign.flush();
+        self.apps_by_kol.flush();
+    }
+
+    fn application(&self, id: AppId) -> Application {
+        self.applications.get(&id).cloned().unwrap_or_else(|| env::panic_str("No such application"))
+    }
+
+    /// Moves `fee` from the campaign's funded balance into a new Pending deal. Project only.
+    fn lock_deal(&mut self, campaign_id: CampaignId, kol_handle: String, kol_account: AccountId, fee: U128) -> DealId {
+        let mut c = self.campaign(campaign_id);
+        require!(env::predecessor_account_id() == c.project, "Only the project");
+        require!(env::block_timestamp() < c.deadline.0, "Campaign deadline has passed");
+        require!(fee.0 > 0, "Fee must be above zero");
+        require!(c.unallocated.0 >= fee.0, "Not enough unallocated funds");
+        let handle = clean_handle(&kol_handle);
+        let id = self.next_deal;
+        self.next_deal += 1;
+        c.unallocated = U128(c.unallocated.0 - fee.0);
+        c.deal_ids.push(id);
+        self.campaigns.insert(campaign_id, c);
+        self.deals.insert(
+            id,
+            Deal {
+                id,
+                campaign_id,
+                kol_handle: handle,
+                kol_account: kol_account.clone(),
+                fee,
+                state: DealState::Pending,
+                claimed_post: None,
+                post_id: None,
+                posted_at: None,
+                verdicts: vec![],
+            },
+        );
+        let mut list = self.deals_by_kol.get(&kol_account).cloned().unwrap_or_default();
+        list.push(id);
+        self.deals_by_kol.insert(kol_account, list);
+        event("deal_added", id, "");
+        id
     }
 
     fn only_agent(&self) {
@@ -862,5 +1068,142 @@ mod tests {
         ctx("escrow.near", 8 * DAY);
         assert!(c.on_settle(0, true, Ok(())));
         assert_eq!(c.get_deal(0).unwrap().state, DealState::Released);
+    }
+
+    // ---------- applications ----------
+
+    fn applied() -> Contract {
+        let mut c = setup(); // campaign 0: 300 funded, 100 in deal 0, 200 unallocated
+        ctx("bob.near", DAY);
+        let id = c.apply(0, "@Bob_Calls".into(), U128(150), "40k followers, DeFi threads".into());
+        assert_eq!(id, 0);
+        c
+    }
+
+    #[test]
+    fn kol_applies_project_accepts_and_fee_is_locked() {
+        let mut c = applied();
+        let a = c.get_application(0).unwrap();
+        assert_eq!((a.state, a.kol_handle.as_str(), a.fee.0), (AppState::Open, "bob_calls", 150));
+        assert_eq!(c.get_campaign(0).unwrap().unallocated.0, 200, "applying locks nothing");
+        ctx("project.near", DAY);
+        let deal = c.accept_application(0);
+        let d = c.get_deal(deal).unwrap();
+        assert_eq!((d.kol_account.as_str(), d.fee.0, d.state), ("bob.near", 150, DealState::Pending));
+        assert_eq!(c.get_campaign(0).unwrap().unallocated.0, 50);
+        let a = c.get_application(0).unwrap();
+        assert_eq!((a.state, a.deal_id), (AppState::Accepted, Some(deal)));
+        assert_eq!(c.get_kol_deals(acc("bob.near")).len(), 1);
+        assert_eq!(c.get_kol_applications(acc("bob.near")).len(), 1);
+        assert_eq!(c.get_campaign_applications(0).len(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "Not enough unallocated")]
+    fn cannot_accept_more_than_is_locked() {
+        let mut c = setup();
+        ctx("bob.near", DAY);
+        c.apply(0, "bob".into(), U128(201), "".into());
+        ctx("project.near", DAY);
+        c.accept_application(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the project")]
+    fn only_project_accepts() {
+        let mut c = applied();
+        ctx("bob.near", DAY);
+        c.accept_application(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Application is not open")]
+    fn rejected_cannot_be_accepted() {
+        let mut c = applied();
+        ctx("project.near", DAY);
+        c.reject_application(0);
+        assert_eq!(c.get_application(0).unwrap().state, AppState::Rejected);
+        c.accept_application(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Application is not open")]
+    fn withdrawn_cannot_be_accepted() {
+        let mut c = applied();
+        ctx("bob.near", DAY);
+        c.withdraw_application(0);
+        ctx("project.near", DAY);
+        c.accept_application(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "already have an open application")]
+    fn one_open_application_per_kol() {
+        let mut c = applied();
+        ctx("bob.near", DAY);
+        c.apply(0, "bob".into(), U128(10), "".into());
+    }
+
+    #[test]
+    fn can_reapply_after_withdrawing() {
+        let mut c = applied();
+        ctx("bob.near", DAY);
+        c.withdraw_application(0);
+        assert_eq!(c.apply(0, "bob".into(), U128(10), "".into()), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "deadline has passed")]
+    fn no_applying_after_deadline() {
+        let mut c = setup();
+        ctx("bob.near", 4 * DAY);
+        c.apply(0, "bob".into(), U128(10), "".into());
+    }
+
+    #[test]
+    #[should_panic(expected = "pay for storage")]
+    fn applying_needs_storage_deposit() {
+        let mut c = setup();
+        ctx_dep("bob.near", DAY, 0);
+        c.apply(0, "bob".into(), U128(10), "".into());
+    }
+
+    #[test]
+    #[should_panic(expected = "already counted for another deal")]
+    fn one_post_pays_one_deal() {
+        let mut c = applied();
+        ctx("project.near", DAY);
+        c.accept_application(0); // deal 1 for bob
+        ctx("agent.near", DAY);
+        c.record_post(0, "777".into(), U64(DAY), "ok".into(), "".into());
+        c.record_post(1, "777".into(), U64(DAY), "same post".into(), "".into());
+    }
+
+    #[test]
+    fn migrate_keeps_old_campaigns_and_deals() {
+        ctx("escrow.near", 0);
+        let mut old = ContractV4 {
+            owner: acc("owner.near"),
+            agent: acc("agent.near"),
+            grace_secs: 600,
+            next_campaign: 0,
+            next_deal: 0,
+            campaigns: LookupMap::new(Key::Campaigns),
+            deals: LookupMap::new(Key::Deals),
+            deals_by_kol: LookupMap::new(Key::DealsByKol),
+        };
+        old.campaigns.insert(0, Campaign {
+            id: 0, project: acc("project.near"), token: acc("usdc.near"), title: "Old".into(),
+            required_text: "#x".into(), created_at: U64(0), deadline: U64(3 * DAY), hold_secs: U64(60),
+            unallocated: U128(5), deal_ids: vec![],
+        });
+        old.next_campaign = 1;
+        old.campaigns.flush();
+        env::state_write(&old);
+        let c = Contract::migrate();
+        assert_eq!(c.get_campaign(0).unwrap().title, "Old");
+        assert_eq!(c.get_config().1.as_str(), "agent.near");
+        assert_eq!(c.list_campaigns(0, 10).len(), 1);
+        assert!(c.get_campaign_applications(0).is_empty());
     }
 }

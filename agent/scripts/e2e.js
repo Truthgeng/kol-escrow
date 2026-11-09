@@ -1,5 +1,6 @@
 // Live end-to-end test on testnet. Uses fixture X data so it costs nothing.
 //
+// KOL A is added by the project directly. KOL B applies and the project accepts.
 // KOL A posts and keeps it up       -> paid 100 tUSDC
 // KOL B posts, then deletes it      -> project refunded 100 tUSDC
 //
@@ -36,14 +37,28 @@ const campaignId = await call(A.escrow.id, "create_campaign", {
 }, nearToYocto("0.01"));
 info(`campaign ${campaignId}, required text ${tag}, hold ${HOLD}s`);
 
-step("2. Project funds the escrow and locks 100 tUSDC per KOL");
+step("2. Project locks 200 tUSDC in the campaign and adds KOL A directly");
 await call(A.token.id, "ft_transfer_call", {
   receiver_id: A.escrow.id,
   amount: (2n * fee).toString(),
   msg: JSON.stringify({ campaign_id: campaignId }),
 }, 1n);
 const dealA = await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "kol_a_demo", kol_account: A.kolA.id, fee: fee.toString() }, nearToYocto("0.025"));
-const dealB = await call(A.escrow.id, "add_deal", { campaign_id: campaignId, kol_handle: "kol_b_demo", kol_account: A.kolB.id, fee: fee.toString() }, nearToYocto("0.025"));
+
+step("2a. KOL B applies at 100 tUSDC. Applying locks nothing; the project accepts and the fee is locked");
+const kolB = new Account(A.kolB.id, provider, A.kolB.secret);
+const appId = await kolB.callFunction({
+  contractId: A.escrow.id, methodName: "apply", gas: teraToGas("30"), deposit: nearToYocto("0.01"), waitUntil: "FINAL",
+  args: { campaign_id: campaignId, kol_handle: "@kol_b_demo", fee: fee.toString(), pitch: "12k followers, NEAR threads" },
+});
+expect((await view(A.escrow.id, "get_campaign", { campaign_id: campaignId })).unallocated === fee.toString(), "100 tUSDC still unallocated after the application");
+let notProject = false;
+try { await kolB.callFunction({ contractId: A.escrow.id, methodName: "accept_application", args: { app_id: appId }, gas: teraToGas("30"), deposit: nearToYocto("0.025"), waitUntil: "FINAL" }); } catch { notProject = true; }
+expect(notProject, "a KOL can't accept their own application");
+const dealB = await call(A.escrow.id, "accept_application", { app_id: appId }, nearToYocto("0.025"));
+const app = await view(A.escrow.id, "get_application", { app_id: appId });
+expect(app.state === "Accepted" && app.deal_id === dealB, `application ${appId} accepted as deal ${dealB}`);
+expect((await view(A.escrow.id, "get_campaign", { campaign_id: campaignId })).unallocated === "0", "all 200 tUSDC now locked in deals");
 
 step("2b. Storage rules: a deal with no storage deposit is refused");
 let refused = false;

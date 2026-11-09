@@ -1,0 +1,54 @@
+name: upgrade-testnet
+# Deploys new escrow code to the live testnet account and migrates its state. Existing campaigns and deals stay.
+on:
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: "Run the live end-to-end test after upgrading"
+        type: boolean
+        default: true
+concurrency: agent
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install cargo-near
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/near/cargo-near/releases/latest/download/cargo-near-installer.sh | sh
+      - name: Test and build the escrow
+        working-directory: contract
+        run: |
+          cargo test --quiet
+          cargo near build non-reproducible-wasm --no-abi
+          ls -l target/near
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: agent
+      - name: Upgrade in place
+        working-directory: agent
+        env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
+          ESCROW_WASM: ../contract/target/near/kol_escrow.wasm
+        run: |
+          set -o pipefail
+          node scripts/upgrade.js | tee upgrade.log
+      - name: End-to-end test on testnet
+        if: inputs.run_e2e
+        working-directory: agent
+        env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
+        run: |
+          set -o pipefail
+          node scripts/e2e.js | tee e2e.log
+      - name: Summary
+        if: always()
+        working-directory: agent
+        run: |
+          { echo '### Upgrade'; echo '```'; cat upgrade.log 2>/dev/null || echo "not run"; echo '```';
+            echo '### End-to-end test'; echo '```'; cat e2e.log 2>/dev/null || echo "not run"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -31,5 +31,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin demo-footage 2>/dev/null && git checkout demo-footage || git checkout --orphan demo-footage
           cp /tmp/f/* .
-          git add *.webm *.png
+          # This branch only holds footage. Tell Vercel not to deploy it.
+          mkdir -p web && echo '{"git":{"deploymentEnabled":false}}' > web/vercel.json
+          git add *.webm *.png web/vercel.json
           git commit -qm "Footage: $(ls /tmp/f | tr '\n' ' ')" && git push -q origin demo-footage
