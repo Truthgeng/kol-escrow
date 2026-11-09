@@ -5,7 +5,8 @@
 import { chromium } from "playwright";
 import { mkdirSync, readdirSync, renameSync } from "node:fs";
 
-const [name, path, actions = "wait:3000,scroll:500,wait:2000,open-records,wait:3000"] = process.argv.slice(2);
+const [name, path] = process.argv.slice(2);
+const actions = process.argv.slice(4).join(" ") || "wait:3000,scroll:500,wait:2000,open-records,wait:3000"; // actions may contain spaces
 const out = "demo/out";
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch();
