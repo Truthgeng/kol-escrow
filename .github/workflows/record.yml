@@ -18,9 +18,12 @@ jobs:
         with:
           node-version: 22
       - run: npm i --no-save playwright@1 && npx playwright install --with-deps chromium
+      - run: npm ci
+        working-directory: agent
       - name: Record
         env:
           SHOTS: ${{ inputs.shots }}
+          KEY_SEED: ${{ secrets.KEY_SEED }}
         run: |
           IFS=';' read -ra list <<< "$SHOTS"
           for s in "${list[@]}"; do node demo/record.mjs $s; done

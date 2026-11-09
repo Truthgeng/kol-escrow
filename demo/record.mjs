@@ -14,6 +14,15 @@ const ctx = await browser.newContext({
   viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1.5, colorScheme: "dark",
   recordVideo: { dir: `${out}/tmp-${name}`, size: { width: 1280, height: 720 } },
 });
+// "as:project" or "as:kolA" as the first action records signed in as that demo account: its key is
+// derived from KEY_SEED inside the workflow and put where the site's test wallet keeps keys.
+const asRole = /^as:(\w+)/.exec(actions)?.[1];
+if (asRole) {
+  const { setup } = await import("../agent/scripts/keys.js");
+  const a = setup().accounts[asRole];
+  if (!a) throw new Error(`No demo account ${asRole}`);
+  await ctx.addInitScript((g) => localStorage.setItem("kolescrow.guest.v1", g), JSON.stringify({ accountId: a.id, secret: a.secret }));
+}
 const page = await ctx.newPage();
 await page.goto(path.startsWith("http") ? path : `https://kol-escrow.vercel.app/${path}`, { waitUntil: "networkidle", timeout: 60000 }).catch(() => {});
 await page.waitForTimeout(1500);
@@ -22,7 +31,8 @@ for (const a of actions.split(",")) {
   const i = a.indexOf(":");
   const k = i < 0 ? a : a.slice(0, i), v = i < 0 ? "" : a.slice(i + 1);
   const [sel, arg] = v.split("|");
-  if (k === "wait") await page.waitForTimeout(Number(v));
+  if (k === "as") continue;
+  else if (k === "wait") await page.waitForTimeout(Number(v));
   else if (k === "scroll") await smooth(Number(v));
   else if (k === "top") await smooth(-(await page.evaluate(() => window.scrollY)));
   else if (k === "open-records") {
