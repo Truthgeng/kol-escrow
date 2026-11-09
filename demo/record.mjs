@@ -1,7 +1,7 @@
 // Records the live website for the demo video: 1920x1080 video of a page, slow scroll, optional
 // clicks. Usage: node demo/record.mjs <name> <path> [actions]
 // actions: comma list of "wait:ms", "scroll:px", "open-records", "top", "into:<css>",
-//   "pick:<css>=<option text>", "type:<css>=<text>", "click:<css>"   (a full URL works as the path too)
+//   "pick:<css>|<option text>", "type:<css>|<text>", "click:<css>"   (a full URL works as the path too)
 import { chromium } from "playwright";
 import { mkdirSync, readdirSync, renameSync } from "node:fs";
 
@@ -21,7 +21,7 @@ const smooth = async (dy) => page.evaluate((dy) => new Promise((r) => { const s 
 for (const a of actions.split(",")) {
   const i = a.indexOf(":");
   const k = i < 0 ? a : a.slice(0, i), v = i < 0 ? "" : a.slice(i + 1);
-  const [sel, arg] = v.split("=");
+  const [sel, arg] = v.split("|");
   if (k === "wait") await page.waitForTimeout(Number(v));
   else if (k === "scroll") await smooth(Number(v));
   else if (k === "top") await smooth(-(await page.evaluate(() => window.scrollY)));
