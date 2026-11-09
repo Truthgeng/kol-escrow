@@ -44,7 +44,9 @@ export async function view(contractId, method, args = {}) {
 let connector;
 let accountId = null;
 let mode = null; // "connector" or "guest"
-const GUEST_KEY = "kolescrow.guest.v1";
+const GUEST_KEY = "kolescrow.guest.v1"; // the test wallet in use
+const GUEST_ALL = "kolescrow.guest.all"; // every test wallet this browser has made, so none is lost
+export const TESTNET_NAME = /^[a-z0-9](?:[a-z0-9]|[_-](?=[a-z0-9])){1,39}$/;
 const listeners = new Set();
 
 export function onAccount(fn) {
@@ -111,7 +113,7 @@ function loadGuest() {
 function savedGuest() {
   try {
     const g = JSON.parse(localStorage.getItem(GUEST_KEY) || "null");
-    return g && /^kolguest-[a-z0-9]{10}\.testnet$/.test(g.accountId) && g.secret ? g : null;
+    return g && /\.testnet$/.test(g.accountId) && g.secret ? g : null;
   } catch {
     return null;
   }
@@ -122,16 +124,31 @@ function sessionStorageSet(k, v) {
   } catch {}
 }
 
-/** Signs in with the browser's test wallet, creating a funded .testnet account the first time. */
-export async function useGuestWallet(onStep = () => {}) {
+function allGuests() {
+  try {
+    return JSON.parse(localStorage.getItem(GUEST_ALL) || "[]").filter((g) => g && g.accountId && g.secret);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Signs in with a test wallet kept in this browser. With a name ("heistruth") it uses or creates
+ * heistruth.testnet; without one it reuses the last test wallet or makes a kolguest-… account.
+ */
+export async function useGuestWallet(name = "", onStep = () => {}) {
   if (!hasGuestWallet) throw new Error("The test wallet only works on testnet");
   sessionStorageSet("kolescrow.guest.off", null);
-  let g = savedGuest();
+  name = name.trim().toLowerCase().replace(/\.testnet$/, "");
+  if (name && !TESTNET_NAME.test(name)) throw new Error("Use 2 to 40 lowercase letters or numbers. - and _ can go between them.");
+  const wanted = name ? `${name}.testnet` : null;
+  let g = wanted ? allGuests().find((x) => x.accountId === wanted) || null : savedGuest();
   if (!g) {
     const { KeyPair } = await import("near-api-js");
     const kp = KeyPair.fromRandom("ed25519");
     const rand = Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("");
-    const id = `kolguest-${rand}.testnet`;
+    const id = wanted || `kolguest-${rand}.testnet`;
+    if (wanted && (await accountExists(id))) throw new Error(`${id} is already taken. Try another name.`);
     onStep("Creating your test account on NEAR testnet…");
     const r = await fetch("/api/faucet", {
       method: "POST",
@@ -145,11 +162,14 @@ export async function useGuestWallet(onStep = () => {}) {
     if (!(await accountExists(id))) throw new Error("The test account didn't show up yet. Try again in a minute.");
     g = { accountId: id, secret: kp.toString() };
     try {
-      localStorage.setItem(GUEST_KEY, JSON.stringify(g));
+      localStorage.setItem(GUEST_ALL, JSON.stringify([...allGuests(), g]));
     } catch {
       throw new Error("This browser blocks storage, so the test wallet can't keep its key. Use a NEAR wallet instead.");
     }
   }
+  try {
+    localStorage.setItem(GUEST_KEY, JSON.stringify(g));
+  } catch {}
   mode = "guest";
   setAccount(g.accountId);
   return g.accountId;

@@ -69,6 +69,11 @@ if (cmd === "setup") {
   console.log(`Escrow ${A.escrow.id}: owner ${cfg[0]}, agent ${cfg[1]}, grace ${cfg[2]}s`);
   const code = await provider.viewContractCode({ contractId: A.escrow.id });
   console.log(`Escrow code: ${code.code.length} bytes, hash ${code.hash}`);
+} else if (cmd === "exists") {
+  for (const id of rest) {
+    const a = await provider.viewAccount({ accountId: id }).catch(() => null);
+    console.log(a ? `${id}: taken (${Number(BigInt(a.amount) / 10n ** 21n) / 1000} NEAR)` : `${id}: free`);
+  }
 } else if (cmd === "wallet-check") {
   // Does what the site's "Use a free test wallet" button does, against the live site.
   const site = rest[0] || "https://kol-escrow.vercel.app";

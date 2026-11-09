@@ -36,9 +36,11 @@ function signIn() {
       <form method="dialog">
         <h2>Connect</h2>
         <p class="muted">This build runs on NEAR testnet. Test money only, nothing real moves.</p>
-        <button class="pick main" value="guest" type="button" data-pick="guest">
-          <b>Use a free test wallet</b><span>One tap. Makes a NEAR testnet account in this browser, ready to use. Nothing to install.</span>
-        </button>
+        <div class="pick main">
+          <b>Use a free test wallet</b><span>Makes a NEAR testnet account in this browser, ready to use. Nothing to install.</span>
+          <label class="name">Pick a name (optional)<span class="pair"><input name="guestname" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="48" placeholder="yourname"><i>.testnet</i></span></label>
+          <button class="btn small" type="button" data-pick="guest">Create and connect</button>
+        </div>
         <button class="pick" value="wallet" type="button" data-pick="wallet">
           <b>Use my NEAR wallet</b><span>Meteor, Intear, Nightly and others. You need a .testnet account in it.</span>
         </button>
@@ -56,7 +58,7 @@ function signIn() {
       const b = e.currentTarget;
       b.disabled = true;
       try {
-        const id = await useGuestWallet((m) => (step.textContent = m));
+        const id = await useGuestWallet(d.querySelector('[name="guestname"]').value, (m) => (step.textContent = m));
         done = true;
         d.close();
         toast(`Connected as ${id}. Test wallet saved in this browser.`);

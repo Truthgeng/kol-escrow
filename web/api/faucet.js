@@ -1,9 +1,9 @@
 // Creates a free testnet account for the built-in test wallet, through NEAR's public testnet helper.
-// Only names the site itself generates are allowed, and only on testnet, so this can't be used
-// to claim arbitrary names. The private key never leaves the visitor's browser: only the public key comes here.
+// Testnet only: a name the site generates (kolguest-…) or one the visitor picks (yourname.testnet).
+// The private key never leaves the visitor's browser: only the public key comes here.
 
 const HELPER = process.env.TESTNET_HELPER_URL || "https://helper.nearprotocol.com/account";
-const NAME = /^kolguest-[a-z0-9]{10}\.testnet$/;
+const NAME = /^[a-z0-9](?:[a-z0-9]|[_-](?=[a-z0-9])){1,39}\.testnet$/;
 const KEY = /^ed25519:[1-9A-HJ-NP-Za-km-z]{43,44}$/;
 
 export default async function handler(req, res) {
