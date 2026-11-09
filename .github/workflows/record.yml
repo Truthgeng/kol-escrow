@@ -30,8 +30,6 @@ jobs:
           git config user.name "kol-escrow-recorder"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin demo-footage 2>/dev/null && git checkout demo-footage || git checkout --orphan demo-footage
-          git rm -rfq --cached . 2>/dev/null || true
-          find . -maxdepth 1 ! -name .git ! -name . -exec rm -rf {} +
           cp /tmp/f/* .
           git add *.webm *.png
           git commit -qm "Footage: $(ls /tmp/f | tr '\n' ' ')" && git push -q origin demo-footage
