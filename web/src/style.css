@@ -331,3 +331,4 @@ legend { font-weight: 700; padding: 0 6px; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .build span, .hero .lede, .hero .actions { opacity: 1; filter: none; transform: none; }
 }
+.btn[hidden] { display: none; }

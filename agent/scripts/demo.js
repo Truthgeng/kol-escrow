@@ -6,6 +6,7 @@
 //       deal A paid to the demo KOL A account, deal B paid to the demo KOL B account
 //   node scripts/demo.js submit <deal_id> <post_url>
 //       submits a post link from whichever demo KOL account owns the deal
+//   node scripts/demo.js proof   prints the agent's keys and the escrow config
 //   node scripts/demo.js show [campaign_id]
 //       prints the state of every deal in the campaign (latest by default)
 
@@ -59,6 +60,15 @@ if (cmd === "setup") {
     console.log(`Deal ${d.id} @${d.kol_handle}: ${d.state}, submitted ${d.claimed_post || "-"}, confirmed ${d.post_id || "-"}`);
     for (const v of d.verdicts) console.log(`   ${v.action}: ${v.reason}`);
   }
+} else if (cmd === "proof") {
+  // What the explorer would show, read straight from the network.
+  const keys = (await provider.viewAccessKeyList({ accountId: A.agent.id })).keys;
+  console.log(`Agent ${A.agent.id} has ${keys.length} access key(s):`);
+  for (const k of keys) console.log(`   ${k.public_key.slice(0, 20)}... ${JSON.stringify(k.access_key.permission)}`);
+  const cfg = await view("get_config", {});
+  console.log(`Escrow ${A.escrow.id}: owner ${cfg[0]}, agent ${cfg[1]}, grace ${cfg[2]}s`);
+  const code = await provider.viewContractCode({ contractId: A.escrow.id });
+  console.log(`Escrow code: ${code.code.length} bytes, hash ${code.hash}`);
 } else {
   console.log("Commands: setup <x_handle> [hold_minutes] | submit <deal_id> <post_url> | show [campaign_id]");
   process.exit(2);
