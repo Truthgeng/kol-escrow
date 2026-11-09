@@ -78,7 +78,7 @@ if (cmd === "setup") {
   // Does what the site's "Use a free test wallet" button does, against the live site.
   const site = rest[0] || "https://kol-escrow.vercel.app";
   const kp = KeyPair.fromRandom("ed25519");
-  const id = `kolguest-${Math.random().toString(36).slice(2, 12).padEnd(10, "0")}.testnet`;
+  const id = rest[1] ? `${rest[1]}.testnet` : `kolguest-${Math.random().toString(36).slice(2, 12).padEnd(10, "0")}.testnet`;
   const r = await fetch(`${site}/api/faucet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: id, publicKey: kp.getPublicKey().toString() }) });
   console.log(`faucet route: ${r.status} ${await r.text()}`);
   let acct = null;
