@@ -310,8 +310,10 @@ async function campaignPage(id) {
   wireTxButtons(app, () => campaignPage(id));
 }
 
-async function mePage() {
-  const me = currentAccount();
+// #/me?as=<account> shows any KOL's deals read-only, without a wallet (handy for judges).
+async function mePage(asAccount) {
+  const viewing = asAccount && /^[a-z0-9._-]{2,64}$/.test(asAccount) ? asAccount : null;
+  const me = viewing || currentAccount();
   if (!me) {
     app.innerHTML = `<section><h1>My deals</h1><p>Connect the wallet the project registered for you to see your locked payments.</p><button class="btn" id="c">Connect wallet</button></section>`;
     return document.getElementById("c").addEventListener("click", () => signIn().catch(toastError));
@@ -328,9 +330,9 @@ async function mePage() {
     parts.push(`<p class="muted"><a href="#/c/${c.id}">${esc(c.title)}</a>, post must include ${esc(c.required_text)}</p>` + ticket(d, c, tk, now) +
       (d.state === "Released" ? payoutPanel(d, c, tk) : ""));
   }
-  app.innerHTML = `<section><h1>My deals</h1><p class="muted">${esc(me)}</p></section>
+  app.innerHTML = `<section><h1>${viewing ? "KOL deals" : "My deals"}</h1><p class="muted">${esc(me)}${viewing && viewing !== currentAccount() ? ", read-only view" : ""}</p></section>
     <section class="tickets">${parts.join("") || "<p>No deals for this account yet. Share your NEAR account with the project so they can lock your fee.</p>"}</section>`;
-  wireTxButtons(app, mePage);
+  wireTxButtons(app, () => mePage(viewing));
   wirePayouts(app);
 }
 
@@ -550,12 +552,13 @@ function toastError(e) {
 }
 
 async function route() {
-  const [, page, id] = location.hash.split("/");
+  const [hashPath, query = ""] = location.hash.split("?");
+  const [, page, id] = hashPath.split("/");
   document.querySelectorAll("nav a").forEach((a) => a.classList.toggle("on", a.getAttribute("href") === `#/${page || ""}`));
   try {
     if (page === "c") await campaignPage(id);
     else if (page === "new") newPage();
-    else if (page === "me") await mePage();
+    else if (page === "me") await mePage(new URLSearchParams(query).get("as"));
     else await home();
   } catch (e) {
     app.innerHTML = `<p>Couldn't load this from ${esc(CONFIG.network)}: ${esc(e.message)}. <a href="#/">Try again</a></p>`;
