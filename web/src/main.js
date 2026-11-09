@@ -137,9 +137,9 @@ function ticket(d, c, token, now) {
     return `<li class="${i < v.step ? "done" : i === v.step ? "now" : ""}">${name}</li>`;
   }).join("");
   const shown = d.post_id || d.claimed_post;
-  const post = shown
-    ? `<a href="https://x.com/${esc(d.kol_handle)}/status/${esc(shown)}" target="_blank" rel="noopener">View post</a>`
-    : "";
+  const post = !shown ? ""
+    : isTestRun(c) ? `<span class="muted">(sample post from the automated test, not on X)</span>`
+    : `<a href="https://x.com/${esc(d.kol_handle)}/status/${esc(shown)}" target="_blank" rel="noopener">View post</a>`;
   const canSubmit = d.state === "Pending" && currentAccount() === d.kol_account && now < nsToMs(c.deadline);
   const submitBox = canSubmit ? `
     <form class="submit-post" data-deal="${d.id}">
@@ -233,7 +233,7 @@ async function home() {
 
   startHeroLoop();
 
-  const campaigns = await view(CONFIG.escrow, "list_campaigns", { from: 0, limit: 50 });
+  const campaigns = (await view(CONFIG.escrow, "list_campaigns", { from: 0, limit: 50 })).filter((c) => !isTestRun(c));
   const list = document.getElementById("list");
   list.classList.remove("loading");
   list.innerHTML = campaigns.length
@@ -266,6 +266,9 @@ async function home() {
 }
 
 /** A campaign takes applications while it has budget no deal has claimed and the deadline is ahead. */
+/** Campaigns made by the automated end-to-end test. Their posts are sample ids, not real X posts. */
+const isTestRun = (c) => c.title === "E2E test campaign" || String(c.required_text).startsWith("#KolEscrowTest");
+
 const isOpen = (c) => BigInt(c.unallocated) > 0n && nsToMs(c.deadline) > Date.now();
 
 function countUp(key, target, suffix) {
@@ -363,6 +366,7 @@ async function campaignPage(id) {
   <section class="campaign-head">
     <p><a href="#/">All campaigns</a></p>
     <h1>${esc(c.title)}</h1>
+    ${isTestRun(c) ? `<p class="note">This campaign was made by the automated end-to-end test. The money moves were real testnet transactions; the posts are sample ids, not real X posts.</p>` : ""}
     <dl class="facts">
       <div><dt>Post must include</dt><dd>${esc(c.required_text)}</dd></div>
       <div><dt>Deadline</dt><dd>${when(nsToMs(c.deadline))}</dd></div>
