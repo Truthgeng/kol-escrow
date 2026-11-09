@@ -6,6 +6,8 @@ on:
       shots:
         description: "One or more shots separated by ;  e.g. submitted #/c/2 wait:3000,scroll:400"
         type: string
+permissions:
+  contents: write
 jobs:
   record:
     runs-on: ubuntu-latest
@@ -22,7 +24,14 @@ jobs:
         run: |
           IFS=';' read -ra list <<< "$SHOTS"
           for s in "${list[@]}"; do node demo/record.mjs $s; done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: recordings
-          path: demo/out/*.*
+      - name: Save to the demo-footage branch
+        run: |
+          mkdir -p /tmp/f && cp demo/out/*.webm demo/out/*.png /tmp/f/
+          git config user.name "kol-escrow-recorder"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin demo-footage 2>/dev/null && git checkout demo-footage || git checkout --orphan demo-footage
+          git rm -rfq --cached . 2>/dev/null || true
+          find . -maxdepth 1 ! -name .git ! -name . -exec rm -rf {} +
+          cp /tmp/f/* .
+          git add *.webm *.png
+          git commit -qm "Footage: $(ls /tmp/f | tr '\n' ' ')" && git push -q origin demo-footage
