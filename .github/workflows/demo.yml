@@ -1,5 +1,5 @@
 name: demo
-# Drives the recorded demo on testnet. Commands: setup <handle> [hold_minutes] | submit <deal> <url> | show [campaign]
+# Drives the recorded demo on testnet. Commands: setup <handle> [hold_minutes] | submit <deal> <url> | show [campaign] | agent (one agent pass)
 on:
   workflow_dispatch:
     inputs:
@@ -25,5 +25,5 @@ jobs:
           KEY_SEED: ${{ secrets.KEY_SEED }}
           DEMO_COMMAND: ${{ inputs.command }}
         run: |
-          node scripts/demo.js | tee out.txt
+          if [ "${DEMO_COMMAND%% *}" = "agent" ]; then node src/run.js | tee out.txt; else node scripts/demo.js | tee out.txt; fi
           { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
