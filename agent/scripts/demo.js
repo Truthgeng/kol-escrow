@@ -70,9 +70,13 @@ if (cmd === "setup") {
   const code = await provider.viewContractCode({ contractId: A.escrow.id });
   console.log(`Escrow code: ${code.code.length} bytes, hash ${code.hash}`);
 } else if (cmd === "exists") {
+  // Asked of two independent testnet RPCs, plus mainnet, so a lagging node or the wrong network can't mislead.
+  const rpcs = { "testnet (fastnear)": provider, "testnet (near.org)": new JsonRpcProvider({ url: "https://rpc.testnet.near.org" }), mainnet: new JsonRpcProvider({ url: "https://free.rpc.fastnear.com" }) };
   for (const id of rest) {
-    const a = await provider.viewAccount({ accountId: id }).catch(() => null);
-    console.log(a ? `${id}: taken (${Number(BigInt(a.amount) / 10n ** 21n) / 1000} NEAR)` : `${id}: free`);
+    for (const [name, p] of Object.entries(rpcs)) {
+      const a = await p.viewAccount({ accountId: id }).catch((e) => ({ err: String(e.message || e).slice(0, 80) }));
+      console.log(`${id} on ${name}: ${a.err ? `not found (${a.err})` : `exists, ${Number(BigInt(a.amount) / 10n ** 21n) / 1000} NEAR`}`);
+    }
   }
 } else if (cmd === "wallet-check") {
   // Does what the site's "Use a free test wallet" button does, against the live site.
