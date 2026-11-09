@@ -1,6 +1,6 @@
 import "./style.css";
 import {
-  CONFIG, isTestToken, view, initWallet, onAccount, currentAccount, signIn, signOut, send, tx,
+  CONFIG, isTestToken, view, initWallet, onAccount, currentAccount, connectWallet, useGuestWallet, hasGuestWallet, currentMode, signOut, send, tx,
   tokenInfo, fromUnits, toUnits, nsToMs, msToNs, intents,
 } from "./near.js";
 
@@ -15,10 +15,63 @@ function renderHeader() {
   const el = document.getElementById("account");
   onAccount((id) => {
     el.innerHTML = id
-      ? `<span class="who">${esc(id)}</span><button class="link" id="out">Disconnect</button>`
+      ? `<span class="who" title="${esc(id)}">${currentMode() === "guest" ? `<i class="badge">test wallet</i>` : ""}${esc(id)}</span><button class="link" id="out">Disconnect</button>`
       : `<button class="btn small" id="in">Connect wallet</button>`;
     el.querySelector("#in")?.addEventListener("click", () => signIn().catch(toastError));
     el.querySelector("#out")?.addEventListener("click", () => signOut());
+  });
+}
+
+// ---------- wallet chooser ----------
+
+/** Resolves once an account is connected. On testnet it offers the built-in test wallet first. */
+function signIn() {
+  if (!hasGuestWallet) return connectWallet();
+  return new Promise((resolve, reject) => {
+    document.getElementById("chooser")?.remove();
+    const d = document.createElement("dialog");
+    d.id = "chooser";
+    d.className = "chooser";
+    d.innerHTML = `
+      <form method="dialog">
+        <h2>Connect</h2>
+        <p class="muted">This build runs on NEAR testnet. Test money only, nothing real moves.</p>
+        <button class="pick main" value="guest" type="button" data-pick="guest">
+          <b>Use a free test wallet</b><span>One tap. Makes a NEAR testnet account in this browser, ready to use. Nothing to install.</span>
+        </button>
+        <button class="pick" value="wallet" type="button" data-pick="wallet">
+          <b>Use my NEAR wallet</b><span>Meteor, Intear, Nightly and others. You need a .testnet account in it.</span>
+        </button>
+        <p class="step muted" aria-live="polite"></p>
+        <button class="link close" value="cancel">Cancel</button>
+      </form>`;
+    document.body.append(d);
+    const step = d.querySelector(".step");
+    let done = false;
+    d.addEventListener("close", () => {
+      d.remove();
+      if (!done) reject(new Error("closed"));
+    });
+    d.querySelector('[data-pick="guest"]').addEventListener("click", async (e) => {
+      const b = e.currentTarget;
+      b.disabled = true;
+      try {
+        const id = await useGuestWallet((m) => (step.textContent = m));
+        done = true;
+        d.close();
+        toast(`Connected as ${id}. Test wallet saved in this browser.`);
+        resolve(id);
+      } catch (err) {
+        step.textContent = err.message;
+        b.disabled = false;
+      }
+    });
+    d.querySelector('[data-pick="wallet"]').addEventListener("click", () => {
+      done = true;
+      d.close();
+      connectWallet().then(resolve, reject);
+    });
+    d.showModal();
   });
 }
 
@@ -151,7 +204,7 @@ async function home() {
     <div class="hero-copy">
       <h1 class="build">${"KOLs get paid when the post stays up.".split(" ").map((w, i) => `<span style="--i:${i}">${w}</span>`).join(" ")}</h1>
       <p class="lede">The project locks each fee on NEAR. The KOL submits their post, and an agent checks it on X and watches it through the hold window. Delete it early and the project gets refunded. Keep it up and the KOL gets paid.</p>
-      <div class="actions"><a class="btn" href="#/new">Start a campaign</a><a class="btn ghost" href="#/me">See my deals</a></div>
+      <div class="actions"><a class="btn" href="#/new">Start a campaign</a><a class="btn ghost" href="#/me">I'm a KOL</a></div>
     </div>
     <div class="stage" aria-hidden="true">${heroTicket()}</div>
   </section>
@@ -183,7 +236,7 @@ async function home() {
   list.classList.remove("loading");
   list.innerHTML = campaigns.length
     ? `<ul class="campaigns">${[...campaigns].reverse().map((c) => `
-        <li><a href="#/c/${c.id}"><b>${esc(c.title)}</b><span class="muted">${c.deal_ids.length} KOL${c.deal_ids.length === 1 ? "" : "s"}, needs ${esc(c.required_text)}</span></a></li>`).join("")}</ul>`
+        <li><a href="#/c/${c.id}"><b>${esc(c.title)}</b><span class="muted">${c.deal_ids.length} KOL${c.deal_ids.length === 1 ? "" : "s"}, needs ${esc(c.required_text)}</span>${isOpen(c) ? `<span class="open-tag">Open to apply</span>` : ""}</a></li>`).join("")}</ul>`
     : `<p>No campaigns yet. <a href="#/new">Start the first one</a>.</p>`;
 
   const all = await Promise.all(campaigns.map(async (c) => ({ c, deals: await view(CONFIG.escrow, "get_campaign_deals", { campaign_id: c.id }) })));
@@ -209,6 +262,9 @@ async function home() {
   demo.innerHTML = `<p class="muted"><a href="#/c/${latest.c.id}">${esc(latest.c.title)}</a></p>` + ticket(pick, latest.c, await tokenInfo(latest.c.token), Date.now());
   wireTxButtons(demo, home);
 }
+
+/** A campaign takes applications while it has budget no deal has claimed and the deadline is ahead. */
+const isOpen = (c) => BigInt(c.unallocated) > 0n && nsToMs(c.deadline) > Date.now();
 
 function countUp(key, target, suffix) {
   const el = document.querySelector(`[data-count="${key}"]`);
@@ -289,10 +345,18 @@ async function campaignPage(id) {
   app.innerHTML = `<p class="loading">Loading campaign…</p>`;
   const c = await view(CONFIG.escrow, "get_campaign", { campaign_id: Number(id) });
   if (!c) return (app.innerHTML = `<p>No campaign ${esc(id)}. <a href="#/">Back to campaigns</a></p>`);
-  const [deals, token] = await Promise.all([view(CONFIG.escrow, "get_campaign_deals", { campaign_id: c.id }), tokenInfo(c.token)]);
+  const [deals, apps, token] = await Promise.all([
+    view(CONFIG.escrow, "get_campaign_deals", { campaign_id: c.id }),
+    view(CONFIG.escrow, "get_campaign_applications", { campaign_id: c.id }).catch(() => []),
+    tokenInfo(c.token),
+  ]);
   const now = Date.now();
   const locked = deals.filter((d) => ["Pending", "Posted", "Settling"].includes(d.state)).reduce((s, d) => s + BigInt(d.fee), 0n);
-  const isProject = currentAccount() === c.project;
+  const me = currentAccount();
+  const isProject = me === c.project;
+  const open = isOpen(c);
+  const fmt = (v) => `${fromUnits(String(v), token.decimals)} ${esc(token.symbol)}`;
+  const myOpen = apps.find((a) => a.kol_account === me && a.state === "Open");
   app.innerHTML = `
   <section class="campaign-head">
     <p><a href="#/">All campaigns</a></p>
@@ -301,13 +365,88 @@ async function campaignPage(id) {
       <div><dt>Post must include</dt><dd>${esc(c.required_text)}</dd></div>
       <div><dt>Deadline</dt><dd>${when(nsToMs(c.deadline))}</dd></div>
       <div><dt>Hold window</dt><dd>${duration(Number(c.hold_secs))}</dd></div>
-      <div><dt>Locked now</dt><dd>${fromUnits(locked.toString(), token.decimals)} ${esc(token.symbol)}</dd></div>
+      <div><dt>Locked in deals</dt><dd>${fmt(locked)}</dd></div>
+      <div><dt>Open budget</dt><dd>${fmt(c.unallocated)}</dd></div>
       <div><dt>Project</dt><dd>${acctLink(c.project)}</dd></div>
     </dl>
-    ${isProject && BigInt(c.unallocated) > 0n ? `<p>${fromUnits(c.unallocated, token.decimals)} ${esc(token.symbol)} not assigned to a KOL. <button class="link" data-tx='${esc(JSON.stringify(tx.withdraw(c.id)))}'>Withdraw it</button></p>` : ""}
+    ${open ? `<p class="note">The open budget is already locked in the escrow. When the project accepts a KOL, their fee moves from it into a deal.</p>` : ""}
+    ${isProject && BigInt(c.unallocated) > 0n ? `<p>${fmt(c.unallocated)} not assigned to a KOL. <button class="link" data-tx='${esc(JSON.stringify(tx.withdraw(c.id)))}'>Withdraw it</button>${open ? " (this closes applications)" : ""}</p>` : ""}
   </section>
-  <section class="tickets">${deals.map((d) => ticket(d, c, token, now)).join("") || "<p>No KOLs added yet.</p>"}</section>`;
+  ${open && !isProject && !myOpen ? applyForm(c, token) : ""}
+  ${apps.length ? `<section><h2>Applications</h2>
+    ${isProject ? `<p class="muted">Open the KOL's profile on X before you accept. The agent only pays for a post from that handle, and one post can only pay one deal.</p>` : ""}
+    <ul class="apps">${[...apps].reverse().map((a) => appRow(a, c, token, isProject, me)).join("")}</ul></section>` : ""}
+  <section><h2>Deals</h2><div class="tickets">${deals.map((d) => ticket(d, c, token, now)).join("") || `<p class="muted">No KOLs locked in yet.${open ? " Accepted applications show up here." : ""}</p>`}</div></section>`;
   wireTxButtons(app, () => campaignPage(id));
+  wireApply(app, c, token, () => campaignPage(id));
+}
+
+const APP_STATE = { Open: "Waiting for the project", Accepted: "Accepted, fee locked", Rejected: "Not accepted", Withdrawn: "Withdrawn" };
+
+function appRow(a, c, token, isProject, me) {
+  const fits = BigInt(a.fee) <= BigInt(c.unallocated);
+  const live = a.state === "Open" && nsToMs(c.deadline) > Date.now();
+  let actions = "";
+  if (live && isProject) {
+    actions = fits
+      ? `<button class="btn small" data-tx='${esc(JSON.stringify(tx.acceptApp(a.id)))}'>Accept and lock ${fromUnits(a.fee, token.decimals)}</button>
+         <button class="link" data-tx='${esc(JSON.stringify(tx.rejectApp(a.id)))}'>Reject</button>`
+      : `<span class="muted">Asks for more than the open budget.</span> <button class="link" data-tx='${esc(JSON.stringify(tx.rejectApp(a.id)))}'>Reject</button>`;
+  } else if (live && a.kol_account === me) {
+    actions = `<button class="link" data-tx='${esc(JSON.stringify(tx.withdrawApp(a.id)))}'>Withdraw my application</button>`;
+  }
+  return `
+  <li class="app ${a.state.toLowerCase()}">
+    <div class="app-top">
+      <div><a href="https://x.com/${esc(a.kol_handle)}" target="_blank" rel="noopener"><b>@${esc(a.kol_handle)}</b></a> <span class="muted">${acctLink(a.kol_account)}</span></div>
+      <p class="amount">${fromUnits(a.fee, token.decimals)} <span>${esc(token.symbol)}</span></p>
+    </div>
+    ${a.pitch ? `<p class="pitch">${esc(a.pitch)}</p>` : ""}
+    <p class="app-state"><span class="pill">${esc(APP_STATE[a.state] || a.state)}</span>${a.deal_id != null ? ` <span class="muted">deal ${a.deal_id}</span>` : ""} ${actions}</p>
+  </li>`;
+}
+
+function applyForm(c, token) {
+  return `
+  <section class="apply">
+    <h2>Apply for this campaign</h2>
+    <p class="muted">Tell the project your price. Nothing is charged to you except a tiny storage fee. If they accept, your fee is locked in a deal for you right away.</p>
+    <form id="apply" class="form">
+      <div class="row">
+        <label>Your X handle<input name="h" required maxlength="16" placeholder="@handle"></label>
+        <label>Your fee (${esc(token.symbol)})<input name="fee" required inputmode="decimal" placeholder="100"><small>Open budget: ${fromUnits(c.unallocated, token.decimals)}</small></label>
+      </div>
+      <label>Short pitch<textarea name="pitch" maxlength="280" rows="3" placeholder="Audience, past campaigns, why you fit"></textarea><small><span id="pitchn">0</span>/280</small></label>
+      <button class="btn" type="submit">${currentAccount() ? "Send application" : "Connect and apply"}</button>
+    </form>
+  </section>`;
+}
+
+function wireApply(root, c, token, after) {
+  const f = root.querySelector("#apply");
+  if (!f) return;
+  const n = f.querySelector("#pitchn");
+  f.pitch.addEventListener("input", () => (n.textContent = new TextEncoder().encode(f.pitch.value).length));
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const b = f.querySelector("button[type=submit]");
+    try {
+      const handle = f.h.value.trim().replace(/^@/, "");
+      if (!/^\w{1,15}$/.test(handle)) throw new Error("Enter your X handle, like @yourname");
+      const fee = toUnits(f.fee.value, token.decimals);
+      if (BigInt(fee) <= 0n) throw new Error("Your fee must be above zero");
+      if (new TextEncoder().encode(f.pitch.value).length > 280) throw new Error("Keep the pitch under 280 characters");
+      if (!currentAccount()) await signIn();
+      if (currentAccount() === c.project) throw new Error("You're the project on this campaign");
+      b.disabled = true;
+      await send([tx.apply(c.id, handle, fee, f.pitch.value.trim())]);
+      toast("Application sent. You'll see it under My deals.");
+      after();
+    } catch (err) {
+      toastError(err);
+      b.disabled = false;
+    }
+  });
 }
 
 // #/me?as=<account> shows any KOL's deals read-only, without a wallet (handy for judges).
@@ -315,13 +454,16 @@ async function mePage(asAccount) {
   const viewing = asAccount && /^[a-z0-9._-]{2,64}$/.test(asAccount) ? asAccount : null;
   const me = viewing || currentAccount();
   if (!me) {
-    app.innerHTML = `<section><h1>My deals</h1><p>Connect the wallet the project registered for you to see your locked payments.</p><button class="btn" id="c">Connect wallet</button></section>`;
+    app.innerHTML = `<section><h1>My deals</h1><p>Connect your wallet to see your applications and locked payments. To find work, open a campaign marked <b>Open to apply</b> on the <a href="#/">home page</a>.</p><button class="btn" id="c">Connect wallet</button></section>`;
     return document.getElementById("c").addEventListener("click", () => signIn().catch(toastError));
   }
   app.innerHTML = `<p class="loading">Loading your deals…</p>`;
-  const deals = await view(CONFIG.escrow, "get_kol_deals", { kol_account: me });
+  const [deals, apps] = await Promise.all([
+    view(CONFIG.escrow, "get_kol_deals", { kol_account: me }),
+    view(CONFIG.escrow, "get_kol_applications", { kol_account: me }).catch(() => []),
+  ]);
   const camps = new Map();
-  for (const d of deals) if (!camps.has(d.campaign_id)) camps.set(d.campaign_id, await view(CONFIG.escrow, "get_campaign", { campaign_id: d.campaign_id }));
+  for (const x of [...deals, ...apps]) if (!camps.has(x.campaign_id)) camps.set(x.campaign_id, await view(CONFIG.escrow, "get_campaign", { campaign_id: x.campaign_id }));
   const now = Date.now();
   const parts = [];
   for (const d of deals.reverse()) {
@@ -330,8 +472,15 @@ async function mePage(asAccount) {
     parts.push(`<p class="muted"><a href="#/c/${c.id}">${esc(c.title)}</a>, post must include ${esc(c.required_text)}</p>` + ticket(d, c, tk, now) +
       (d.state === "Released" ? payoutPanel(d, c, tk) : ""));
   }
+  const waiting = apps.filter((a) => a.state !== "Accepted").reverse();
+  const appParts = [];
+  for (const a of waiting) {
+    const c = camps.get(a.campaign_id);
+    appParts.push(`<p class="muted"><a href="#/c/${c.id}">${esc(c.title)}</a></p><ul class="apps">${appRow(a, c, await tokenInfo(c.token), false, viewing ? null : me)}</ul>`);
+  }
   app.innerHTML = `<section><h1>${viewing ? "KOL deals" : "My deals"}</h1><p class="muted">${esc(me)}${viewing && viewing !== currentAccount() ? ", read-only view" : ""}</p></section>
-    <section class="tickets">${parts.join("") || "<p>No deals for this account yet. Share your NEAR account with the project so they can lock your fee.</p>"}</section>`;
+    ${appParts.length ? `<section><h2>Applications</h2>${appParts.join("")}</section>` : ""}
+    <section><h2>Deals</h2><div class="tickets">${parts.join("") || `<p>No deals for this account yet. Apply to a campaign marked <b>Open to apply</b> on the <a href="#/">home page</a>, or share your NEAR account with a project so they can lock your fee.</p>`}</div></section>`;
   wireTxButtons(app, () => mePage(viewing));
   wirePayouts(app);
 }
@@ -449,7 +598,7 @@ function newPage() {
   app.innerHTML = `
   <section>
     <h1>Start a campaign</h1>
-    <p class="lede">You lock each KOL's fee now. It goes to them only if their post goes up by the deadline and stays up for the hold window.</p>
+    <p class="lede">You lock the money now. A KOL gets paid only if their post goes up by the deadline and stays up for the hold window. Otherwise it comes back to you.</p>
   </section>
   <form id="f" class="form">
     <label>Campaign name<input name="title" required maxlength="120" placeholder="Mainnet launch push"></label>
@@ -459,13 +608,17 @@ function newPage() {
       <label>Post must stay up for<span class="pair"><input type="number" name="hold" min="1" value="7" required><select name="unit"><option value="86400">days</option><option value="3600">hours</option><option value="60">minutes</option></select></span></label>
     </div>
     <fieldset>
-      <legend>KOLs</legend>
+      <legend>Budget for KOLs who apply</legend>
+      <label>Open budget<input name="budget" inputmode="decimal" placeholder="500"><small>KOLs see the campaign and apply with their price. You pick who to accept; each accepted fee comes out of this budget. Anything you don't use, you can withdraw.</small></label>
+    </fieldset>
+    <fieldset>
+      <legend>KOLs you already work with <span class="muted">(optional)</span></legend>
       <div id="kols"></div>
-      <button type="button" class="link" id="add">Add another KOL</button>
+      <button type="button" class="link" id="add">Add a KOL</button>
     </fieldset>
     <p class="total" id="total"></p>
     ${isTestToken ? `<p class="note">Testnet uses free tUSDC. You'll get the amount you need minted to your wallet in the same step.</p>` : ""}
-    <button class="btn" type="submit" id="go">Lock the fees</button>
+    <button class="btn" type="submit" id="go">Lock the money</button>
     <p class="muted" id="progress" aria-live="polite"></p>
   </form>`;
 
@@ -478,18 +631,18 @@ function newPage() {
       <label>Their NEAR account<input name="a" required placeholder="name.${CONFIG.network === "testnet" ? "testnet" : "near"}"></label>
       <label>Fee<input name="fee" required inputmode="decimal" placeholder="100"></label>
       <button type="button" class="link remove" aria-label="Remove this KOL">Remove</button>`;
-    row.querySelector(".remove").addEventListener("click", () => { if (kols.children.length > 1) row.remove(); updateTotal(); });
+    row.querySelector(".remove").addEventListener("click", () => { row.remove(); updateTotal(); });
     row.addEventListener("input", updateTotal);
     kols.append(row);
   };
   const updateTotal = async () => {
     const { decimals, symbol } = await tokenInfo(CONFIG.token);
     let sum = 0n;
-    for (const i of kols.querySelectorAll('[name="fee"]')) { try { sum += BigInt(toUnits(i.value || "0", decimals)); } catch {} }
+    for (const i of [...kols.querySelectorAll('[name="fee"]'), document.querySelector('[name="budget"]')]) { try { sum += BigInt(toUnits(i.value || "0", decimals)); } catch {} }
     document.getElementById("total").textContent = `Total to lock: ${fromUnits(sum.toString(), decimals)} ${symbol}`;
   };
   document.getElementById("add").addEventListener("click", addRow);
-  addRow();
+  document.querySelector('[name="budget"]').addEventListener("input", updateTotal);
   updateTotal();
 
   document.getElementById("f").addEventListener("submit", async (e) => {
@@ -511,7 +664,9 @@ function newPage() {
         if (!/^[a-z0-9._-]{2,64}$/.test(r.account)) throw new Error(`"${r.account}" isn't a valid NEAR account`);
         if (BigInt(r.fee) <= 0n) throw new Error("Every fee must be above zero");
       }
-      const total = rows.reduce((s, r) => s + BigInt(r.fee), 0n).toString();
+      const budget = BigInt(toUnits(f.get("budget") || "0", decimals));
+      const total = rows.reduce((s, r) => s + BigInt(r.fee), budget).toString();
+      if (BigInt(total) <= 0n) throw new Error("Set an open budget, add a KOL, or both");
       const deadlineMs = new Date(f.get("deadline")).getTime();
       if (!(deadlineMs > Date.now())) throw new Error("The deadline has to be in the future");
       const holdSecs = Number(f.get("hold")) * Number(f.get("unit"));
@@ -525,7 +680,7 @@ function newPage() {
       const campaignId = out.at(-1);
       if (campaignId == null) throw new Error("The campaign was created but its number didn't come back. Check your wallet history.");
 
-      progress.textContent = "Step 2 of 2: locking the fees…";
+      progress.textContent = "Step 2 of 2: locking the money…";
       await send([tx.fund(campaignId, total), ...rows.map((r) => tx.addDeal(campaignId, r.handle, r.account, r.fee))]);
       location.hash = `#/c/${campaignId}`;
     } catch (err) {
