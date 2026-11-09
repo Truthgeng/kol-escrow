@@ -1,0 +1,28 @@
+name: record
+# Records the live site for the demo video. shots: lines of "<name> <path> [actions]"
+on:
+  workflow_dispatch:
+    inputs:
+      shots:
+        description: "One or more shots separated by ;  e.g. submitted #/c/2 wait:3000,scroll:400"
+        type: string
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm i --no-save playwright@1 && npx playwright install --with-deps chromium
+      - name: Record
+        env:
+          SHOTS: ${{ inputs.shots }}
+        run: |
+          IFS=';' read -ra list <<< "$SHOTS"
+          for s in "${list[@]}"; do node demo/record.mjs $s; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recordings
+          path: demo/out/*.*
