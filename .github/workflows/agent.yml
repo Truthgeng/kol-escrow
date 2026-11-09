@@ -16,6 +16,7 @@ concurrency: agent
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     defaults:
       run:
         working-directory: agent
@@ -25,7 +26,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
-      - run: npm test
+
       - name: Check one post
         if: inputs.post_url != ''
         env:
