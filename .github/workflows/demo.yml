@@ -1,0 +1,29 @@
+name: demo
+# Drives the recorded demo on testnet. Commands: setup <handle> [hold_minutes] | submit <deal> <url> | show [campaign]
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Demo command"
+        type: string
+        default: "show"
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Run
+        env:
+          KEY_SEED: ${{ secrets.KEY_SEED }}
+          DEMO_COMMAND: ${{ inputs.command }}
+        run: |
+          node scripts/demo.js | tee out.txt
+          { echo '```'; cat out.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
