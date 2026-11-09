@@ -10,7 +10,7 @@
 //   node scripts/demo.js show [campaign_id]
 //       prints the state of every deal in the campaign (latest by default)
 
-import { Account, JsonRpcProvider, teraToGas, nearToYocto } from "near-api-js";
+import { Account, JsonRpcProvider, KeyPair, teraToGas, nearToYocto } from "near-api-js";
 import { setup as keys } from "./keys.js";
 
 const provider = new JsonRpcProvider({ url: process.env.NEAR_RPC_URL || "https://test.rpc.fastnear.com" });
@@ -69,6 +69,23 @@ if (cmd === "setup") {
   console.log(`Escrow ${A.escrow.id}: owner ${cfg[0]}, agent ${cfg[1]}, grace ${cfg[2]}s`);
   const code = await provider.viewContractCode({ contractId: A.escrow.id });
   console.log(`Escrow code: ${code.code.length} bytes, hash ${code.hash}`);
+} else if (cmd === "wallet-check") {
+  // Does what the site's "Use a free test wallet" button does, against the live site.
+  const site = rest[0] || "https://kol-escrow.vercel.app";
+  const kp = KeyPair.fromRandom("ed25519");
+  const id = `kolguest-${Math.random().toString(36).slice(2, 12).padEnd(10, "0")}.testnet`;
+  const r = await fetch(`${site}/api/faucet`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: id, publicKey: kp.getPublicKey().toString() }) });
+  console.log(`faucet route: ${r.status} ${await r.text()}`);
+  let acct = null;
+  for (let i = 0; i < 20 && !acct; i++) {
+    await new Promise((res) => setTimeout(res, 1500));
+    acct = await provider.viewAccount({ accountId: id }).catch(() => null);
+  }
+  if (!acct) throw new Error(`${id} never appeared`);
+  console.log(`${id} exists with ${Number(BigInt(acct.amount) / 10n ** 21n) / 1000} NEAR`);
+  const a = new Account(id, provider, kp.toString());
+  await a.callFunction({ contractId: A.token.id, methodName: "mint", args: { account_id: id, amount: "1000000" }, gas: teraToGas("30"), waitUntil: "FINAL" });
+  console.log(`signed a mint from the new account: ${await view.call(null, "get_config", {}).then(() => "ok")}`);
 } else {
   console.log("Commands: setup <x_handle> [hold_minutes] | submit <deal_id> <post_url> | show [campaign_id]");
   process.exit(2);
