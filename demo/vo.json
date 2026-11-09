@@ -1,0 +1,21 @@
+{
+  "voice": "af_heart",
+  "speed": 1.0,
+  "lines": [
+    ["01", 0.6, "You paid the K.O.L."],
+    ["02", 3.9, "They posted."],
+    ["03", 6.9, "Three days later. Deleted."],
+    ["04", 11.3, "Or the project ghosts you."],
+    ["05", 13.8, "Every K.O.L. deal runs on trust."],
+    ["06", 17.0, "K.O.L. Escrow. The post stays up. The K.O.L. gets paid."],
+    ["07", 23.6, "A project posts a campaign, with the budget already locked on NEAR. K.O.L.s apply with their price."],
+    ["08", 38.2, "The project accepts, and that K.O.L.'s fee moves into a deal. The project can't pull it back."],
+    ["09", 53.3, "The K.O.L. posts on X, and submits the link."],
+    ["10", 67.0, "An agent reads the post on X, for free, and starts the hold window."],
+    ["11", 84.0, "Post stays up, the K.O.L. gets paid. Post gets deleted, the project gets refunded. Every reason is recorded on chain."],
+    ["12", 104.0, "And the agent can't run off with the money. Its key can only record, release, or refund."],
+    ["13", 113.6, "Paid K.O.L.s can cash out to U.S.D.C. on another chain, through NEAR Intents."],
+    ["14", 132.2, "It's live on NEAR testnet. Try it free. No wallet app needed."],
+    ["15", 144.2, "K.O.L. Escrow. Built on NEAR."]
+  ]
+}

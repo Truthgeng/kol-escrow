@@ -1,0 +1,34 @@
+name: voiceover
+# Generates the demo video's voiceover with Kokoro (free, open source) and saves it to the demo-footage branch.
+on:
+  workflow_dispatch:
+    inputs:
+      voices:
+        description: "Kokoro voices, space separated"
+        default: "af_heart af_bella"
+permissions:
+  contents: write
+jobs:
+  tts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: sudo apt-get update -q && sudo apt-get install -y -q espeak-ng
+      - run: pip install -q "kokoro>=0.9" soundfile
+      - name: Generate
+        env:
+          VOICES: ${{ inputs.voices }}
+        run: |
+          mkdir -p /tmp/vo
+          for v in $VOICES; do python demo/tts.py demo/vo.json /tmp/vo "$v"; done
+      - name: Save to the footage branch
+        run: |
+          git config user.name "github-actions" && git config user.email "github-actions@users.noreply.github.com"
+          git fetch origin demo-footage && git checkout demo-footage
+          mkdir -p vo web && cp /tmp/vo/*.wav vo/
+          echo '{"git":{"deploymentEnabled":false}}' > web/vercel.json
+          git add vo web/vercel.json && git commit -qm "Voiceover" && git push -q origin demo-footage
