@@ -2,7 +2,12 @@
 
 Escrow for paid posts on X. A project locks each KOL's fee on NEAR. An agent checks the post, watches it through a hold window, then pays the KOL or refunds the project. Neither side can take the money back once it's locked.
 
-Built for NEAR HACKATHON 2026. Live app: **https://kol-escrow.vercel.app** (NEAR testnet).
+Built at NEAR HACKATHON 2026. Live app: **https://kol-escrow.vercel.app** (NEAR testnet). Demo video: see the demo post linked in the submission.
+
+**Fastest look for a judge:**
+- https://kol-escrow.vercel.app/#/c/2 is a finished campaign run with real posts on X: one KOL kept the post up and was paid, the other deleted it and the project was refunded. Open **Agent record** on each ticket for the reasons.
+- https://kol-escrow.vercel.app/#/c/4 is open to applications with 100 tUSDC left. Connect a free test wallet and apply (step 7 below).
+- `https://kol-escrow.vercel.app/#/me?as=<account>` shows any KOL's deals read-only, for example `#/me?as=kolkola-1c4994.testnet`.
 
 ## The problem
 
@@ -50,7 +55,7 @@ No install needed for steps 1 to 5.
 2. **Open a campaign from the list.** Each KOL is a ticket showing its state (Locked, Posted, Holding, Paid or Refunded). Open **Agent record** to see each verdict, its reason and how it was checked.
 3. **Open the contract on the explorer:** https://testnet.nearblocks.io/address/kolescrow4-1c4994.testnet. You see the `record_post`, `release` and `refund` calls from `kolagent4-1c4994.testnet` and the `tUSDC` transfers they caused.
 4. **Check the agent's key:** on the explorer page for `kolagent4-1c4994.testnet`, open Access Keys. You see one function call key, limited to the escrow contract and those three methods, and no full access key.
-5. **Check a real post the way the agent does.** In the repo's Actions tab, run the `agent` workflow with a post link in `post_url`. The run prints the post's real author, its creation time read from the id, its text and whether it's live. Locally: `cd agent && node scripts/check-post.js https://x.com/<handle>/status/<id>`.
+5. **Check a real post the way the agent does.** Run `cd agent && npm ci && node scripts/check-post.js https://x.com/heistruthX/status/2119766985303351688` (no keys needed). It prints the post's real author, its creation time read from the id, its text and whether it's live. In a fork, the `agent` workflow does the same with a link in `post_url`.
 6. **Connect.** Press **Connect wallet** and pick **Use a free test wallet**, optionally type a name, and press **Create and connect**. The site makes a funded `.testnet` account for you; its key stays in your browser. Or pick **Use my NEAR wallet** if you already have a testnet account in Meteor, Intear or another NEAR wallet.
 7. **Run a campaign with applications.** Open **New**, set an open budget (say 300) and a 10 minute hold window, and press **Lock the money**. Free tUSDC is minted to you in the same step. You land on the campaign page, now marked **Open to apply** on the home page. In a second browser (or a private window, which gets its own test wallet), open the campaign and apply with your X handle and a fee. Back as the project, press **Accept and lock**: the fee moves into a deal and the ticket appears in Locked. As the KOL, post on X with the required text, open **My deals**, paste the link into **Submit post**, and within 15 minutes the agent moves the deal to Holding.
 8. **See a cross-chain cash-out quote.** As a KOL with a paid deal, open **My deals**, pick for example USDC on Base, paste a Base address and press **Get a quote**. You see a live NEAR Intents quote (amount out, minimum after slippage, time). On testnet this is a preview priced with real USDC; sending works on mainnet. The same quote from the command line:
@@ -68,8 +73,9 @@ Requires Rust (stable) and Node 22.
 ```sh
 git clone https://github.com/Truthgeng/kol-escrow && cd kol-escrow
 
-# Contract unit tests: 28 tests covering the happy path, early delete, late post,
-# old post, KOL-submitted posts, storage deposits, both timeouts, double settle and failed transfers
+# Contract unit tests: 39 tests covering the happy path, early delete, late post,
+# old post, KOL-submitted posts, storage deposits, both timeouts, double settle, failed transfers,
+# applications (apply, accept, reject, withdraw, budget limits), one post per deal, and the state migration
 cd contract && cargo test && cd ..
 
 # Test token tests: 3 tests
@@ -108,14 +114,21 @@ cd web && npm ci && npm run dev
 | NEAR AI Cloud (optional) | `agent/src/judge.js`: judges whether a post meets the terms and stores the TEE signature for that request with the verdict |
 | NEAR Connect | Wallet sign-in and transactions in the web app |
 
-Tracks: Real-World Money, AI Security & Defense, Agent Economy, Autonomous Business.
+Tracks: AI Security & Defense (`security`), Real-World Money (`realworld`), Agent Economy (`agents`).
+
+## Built during the hackathon
+
+- All code in this repository was written during NEAR HACKATHON. The first commit is on 2026-11-07; there is no earlier product or code.
+- Libraries: `near-sdk` 5 (contract and test token), `near-api-js` 7 (agent, scripts, test wallet), `@hot-labs/near-connect` (wallet sign-in), Vite (web build), Playwright (demo recordings), `cargo-near` (wasm build). No templates or boilerplate.
+- Most of the code was written with an AI coding assistant (Claude), directed and reviewed by the team.
+- This is the team's only NEAR HACKATHON project.
 
 ## How it works
 
 ```
 Project --ft_transfer_call--> Escrow contract <--record_post / release / refund-- Agent (function call key)
                                    |                                                 |
-                                   |-- ft_transfer --> KOL's NEAR account            |-- X API: find post, check it's live, sample replies
+                                   |-- ft_transfer --> KOL's NEAR account            |-- X: free embed check (or paid API with reply sampling)
                                    |-- ft_transfer --> Project (refund)              |-- NEAR AI Cloud: does the post meet the terms?
                                                                                      
 KOL's NEAR account --ft_transfer--> 1Click deposit address --> USDC on Base, Solana, Arbitrum...
@@ -125,7 +138,7 @@ KOL's NEAR account --ft_transfer--> 1Click deposit address --> USDC on Base, Sol
 
 **Agent** (`agent/`). One pass looks at every open deal: for Pending deals it checks the post the KOL submitted (or, with the paid API, searches the KOL's recent posts for the required text); for Posted deals it checks the post is still live and, with the paid API, samples replies after the hold window. The decision logic is a pure function in `src/decide.js` with its own tests. The `agent` workflow runs a pass every 15 minutes on GitHub Actions, so no server is needed.
 
-**Web app** (`web/`). Vite, no framework. Reads the contract over JSON-RPC and signs with NEAR Connect. On testnet it also offers a built-in test wallet: it creates a key in the browser, asks NEAR's public testnet helper (through `api/faucet.js`, which only accepts names the site generates) to create a `kolguest-….testnet` account for that key, and signs with near-api-js. It talks to 1Click through three small serverless routes on Vercel that accept a fixed request shape.
+**Web app** (`web/`). Vite, no framework. Reads the contract over JSON-RPC and signs with NEAR Connect. On testnet it also offers a built-in test wallet: it creates a key in the browser, asks NEAR's public testnet helper (through `api/faucet.js`, testnet names only) to create a `.testnet` account for that key, either one the visitor names or a random `kolguest-…` one, and signs with near-api-js. It talks to 1Click through three small serverless routes on Vercel that accept a fixed request shape.
 
 **Upgrades.** The live testnet contract was upgraded in place to add applications: the `upgrade-testnet` workflow deploys the new code and calls `migrate` in one transaction, which keeps every earlier campaign and deal. One post can only ever pay one deal, so a KOL who applies under someone else's handle can't claim a post that already counted.
 
@@ -139,6 +152,7 @@ KOL's NEAR account --ft_transfer--> 1Click deposit address --> USDC on Base, Sol
 - **A KOL's handle on an application is self-declared.** The project should check the X profile before accepting. The agent only pays for a post from that handle, so an impostor can't get paid unless they control the account.
 - **The test wallet is for testnet only.** Its key lives in the browser's storage. Clearing site data loses it.
 - **Storage from settled deals is not reclaimed yet.**
+- **Mainnet is prepared, not live.** `agent/scripts/deploy-mainnet.js` and the `deploy-mainnet` workflow (which asks for a typed confirmation) are there for a later launch with native USDC. They were never run; everything in the demo is on testnet.
 
 ## Repository layout
 
@@ -146,8 +160,9 @@ KOL's NEAR account --ft_transfer--> 1Click deposit address --> USDC on Base, Sol
 contract/     escrow contract (Rust) and unit tests
 test-token/   tUSDC, a free NEP-141 test token for the demo
 agent/        the checking agent, deploy and end-to-end scripts, tests
-web/          the web app and /api routes for NEAR Intents
-.github/      contract build, testnet deploy with live test, scheduled agent
+web/          the web app, /api routes for NEAR Intents and the testnet faucet
+demo/         scripts that recorded the demo video
+.github/      contract build, testnet deploy and upgrade with live tests, scheduled agent
 ```
 
 ## Licence
