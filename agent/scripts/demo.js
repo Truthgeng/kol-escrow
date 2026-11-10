@@ -6,7 +6,7 @@
 //       deal A paid to the demo KOL A account, deal B paid to the demo KOL B account
 //   node scripts/demo.js submit <deal_id> <post_url>
 //       submits a post link from whichever demo KOL account owns the deal
-//   node scripts/demo.js open [hold_minutes] [budget]
+//   node scripts/demo.js open [hold_minutes] [budget] [days_open]
 //       creates a campaign with an open budget and no deals, for the apply flow
 //   node scripts/demo.js proof   prints the agent's keys and the escrow config
 //   node scripts/demo.js show [campaign_id]
@@ -51,16 +51,17 @@ if (cmd === "setup") {
   // A campaign with an open budget and no deals yet, for recording the apply flow.
   const holdMin = Number(rest[0] || 10);
   const budget = BigInt(rest[1] || 150) * 1_000_000n;
+  const days = BigInt(rest[2] || 1);
   await call(A.project, A.token.id, "mint", { account_id: A.project.id, amount: budget.toString() });
   const id = await call(A.project, A.escrow.id, "create_campaign", {
     token: A.token.id,
     title: "Launch week on NEAR",
     required_text: TAG,
-    deadline: ((BigInt(Date.now()) + 24n * 3_600_000n) * 1_000_000n).toString(),
+    deadline: ((BigInt(Date.now()) + days * 24n * 3_600_000n) * 1_000_000n).toString(),
     hold_secs: String(holdMin * 60),
   }, nearToYocto("0.01"));
   await call(A.project, A.token.id, "ft_transfer_call", { receiver_id: A.escrow.id, amount: budget.toString(), msg: JSON.stringify({ campaign_id: id }) }, 1n);
-  console.log(`Campaign ${id} open with ${budget / 1_000_000n} tUSDC budget, hold ${holdMin} min. Page: https://kol-escrow.vercel.app/#/c/${id}`);
+  console.log(`Campaign ${id} open for ${days} day(s) with ${budget / 1_000_000n} tUSDC budget, hold ${holdMin} min. Page: https://kol-escrow.vercel.app/#/c/${id}`);
   console.log(`Project ${A.project.id}, applicant ${A.kolA.id}`);
 } else if (cmd === "submit") {
   const dealId = Number(rest[0]);
