@@ -6,7 +6,7 @@ Built at NEAR HACKATHON 2026. Live app: **https://kol-escrow.vercel.app** (NEAR 
 
 **Fastest look for a judge:**
 - https://kol-escrow.vercel.app/#/c/2 is a finished campaign run with real posts on X: one KOL kept the post up and was paid, the other deleted it and the project was refunded. Open **Agent record** on each ticket for the reasons.
-- https://kol-escrow.vercel.app/#/c/4 is open to applications with 100 tUSDC left. Connect a free test wallet and apply (step 7 below).
+- https://kol-escrow.vercel.app/#/c/5 is open to applications until 2026-11-26, with a 300 tUSDC budget locked. Connect a free test wallet and apply (step 7 below).
 - `https://kol-escrow.vercel.app/#/me?as=<account>` shows any KOL's deals read-only, for example `#/me?as=kolkola-1c4994.testnet`.
 
 ## The problem
