@@ -40,6 +40,16 @@ if (derived) {
   }
 }
 
+if (!cfg.dryRun) {
+  const key = await chain.assertLimitedKey();
+  if (key) {
+    const left = key.allowance == null ? "unlimited" : `${(Number(BigInt(key.allowance) / 10n ** 21n) / 1000).toFixed(3)} NEAR`;
+    log(`agent key: function call only, ${key.method_names.join("/")} on ${key.receiver_id}, gas allowance left ${left}`);
+    // The allowance only pays gas. When it runs low, the owner rotates the agent with set_agent.
+    if (key.allowance != null && BigInt(key.allowance) < 10n ** 23n) log("WARNING: agent key allowance below 0.1 NEAR, rotate the agent soon (see README, Security model)");
+  }
+}
+
 const nowNs = BigInt(Date.now()) * 1_000_000n;
 const open = await chain.allOpenDeals();
 log(`${open.length} open deal(s) on ${cfg.contractId} (${cfg.network})${cfg.dryRun ? ", dry run" : ""}`);

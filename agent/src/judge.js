@@ -71,7 +71,9 @@ async function nearAiJudge({ title, requiredText, postText }, apiKey, model) {
 }
 
 /**
- * Fetches the TEE signature for this chat and checks it covers our exact request and response.
+ * Fetches the TEE signature for this chat and checks its signed text covers our exact request and
+ * response hashes. It does not verify the signature itself or pin NEAR AI's signing address: the
+ * signature is stored on-chain so anyone can verify it later. The site labels it "not verified".
  * Format stored on-chain: nearai:<chat_id>:<signing_address>:<signature>
  */
 async function attest(chatId, model, reqBody, resText, apiKey) {

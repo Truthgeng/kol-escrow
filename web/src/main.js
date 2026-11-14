@@ -118,8 +118,8 @@ function attestation(a) {
   if (!a) return "Triggered by the timeout rule, no agent involved";
   if (a === "rules:v1") return "Checked by the agent's rule check";
   const [, chat, addr, sig] = a.split(":");
-  if (addr === "unsigned" || addr === "mismatch" || !sig) return `Checked by NEAR AI (chat ${esc(chat)}), no TEE signature attached`;
-  return `Checked by NEAR AI. Signature from its TEE key <code title="${esc(sig)}">${esc(addr.slice(0, 10))}…</code> for chat <code>${esc(chat.slice(0, 14))}</code>`;
+  if (addr === "unsigned" || addr === "mismatch" || !sig) return `Judged by NEAR AI (chat ${esc(chat)}), no TEE signature attached`;
+  return `Judged by NEAR AI. TEE signature recorded, not verified on-chain: key <code title="${esc(sig)}">${esc(addr.slice(0, 10))}…</code>, chat <code>${esc(chat.slice(0, 14))}</code>`;
 }
 
 const VERDICT = {

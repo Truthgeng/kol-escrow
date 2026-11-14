@@ -96,6 +96,15 @@ if (cmd === "setup") {
       console.log(`${id} on ${name}: ${a.err ? `not found (${a.err})` : `exists, ${Number(BigInt(a.amount) / 10n ** 21n) / 1000} NEAR`}`);
     }
   }
+} else if (cmd === "txs") {
+  // Recent transactions signed by the agent, from the testnet explorer's public API, for the README proof.
+  const r = await fetch(`https://api-testnet.nearblocks.io/v1/account/${A.agent.id}/txns?per_page=25&order=desc`);
+  const b = await r.json().catch(() => ({}));
+  console.log(`HTTP ${r.status} for ${A.agent.id}`);
+  for (const t of b.txns || []) {
+    const m = (t.actions || []).map((a) => a.method || a.action).join(",");
+    console.log(`TX ${t.transaction_hash} ${new Date(Number(BigInt(t.block_timestamp) / 1_000_000n)).toISOString()} ${t.predecessor_account_id} -> ${t.receiver_account_id} ${m} ${t.outcomes?.status === false ? "FAILED" : ""}`);
+  }
 } else if (cmd === "rules") {
   // Prints the hackathon's official rules file, to re-check them before submitting.
   const r = await fetch("https://nearhackathon.com/HACKATHON.md");
