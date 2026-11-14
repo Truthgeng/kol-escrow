@@ -116,6 +116,32 @@ cd web && npm ci && npm run dev
 
 Tracks: AI Security & Defense (`security`), Real-World Money (`realworld`), Agent Economy (`agents`).
 
+## Security model and trust assumptions
+
+What the contract enforces, so no one has to trust it:
+- A locked fee can only go to that deal's KOL or back to that campaign's project. No method sends funds anywhere else, and the project can't pull a locked fee back.
+- The agent can only act through `record_post`, `release` and `refund` (`only_agent`). `release` waits for the hold window; `refund` of a deal with no post waits for the deadline.
+- The post the agent confirms must be the one the KOL submitted, and one post can only ever pay one deal (`used_posts`).
+- If the agent goes quiet, anyone can call `refund_expired` (no post by deadline plus grace) or `release_timeout` (post held, agent silent past the grace period).
+
+How the agent's key is limited:
+- The agent account has exactly one key: a function call key for the escrow, methods `record_post`, `release`, `refund`, with a 5 NEAR gas allowance. Its full access key was deleted at deploy (`agent/scripts/deploy.js`).
+- The agent refuses to run if its key has full access, points at another contract or allows other methods (`assertLimitedKey` in `agent/src/chain.js`). Each run logs the remaining allowance.
+- Recovery: the allowance only pays gas (about 0.001 NEAR per call, so thousands of verdicts). When it runs low, or if the key leaks, the contract owner calls `set_agent` to switch to a new agent account. The old key then can't call anything that matters.
+
+What is still trusted (testnet build):
+- **The agent's reading of X.** The contract can't see X, so it trusts the agent on who wrote a post, when, and whether it was deleted. A wrong verdict can only move a fee between the two parties of that one deal, never out of the escrow. Every verdict is stored with its reason so it can be checked.
+- **The escrow account's full access key.** It's derived from the deployment secret so the contract could be upgraded during the hackathon (it was, once, to add applications, with all state kept). For mainnet the plan is to deploy, then delete that key or hand upgrades to a multisig.
+- **NEAR AI attestations aren't verified on-chain.** When the NEAR AI judge is on, the agent checks that the TEE-signed text covers the exact request and response hashes and stores the signature on-chain, but nothing verifies the signature against NEAR AI's signing address. The site labels it "not verified". The live testnet agent uses the rules judge.
+
+Why not NEAR's Agent API for the money: the agent never holds or spends funds. All money sits in the escrow and moves only by per-deal rules (one deal, one post, a hold window, two-way timeouts) that a spending-limit policy can't express. The Agent API is also mainnet-only. The scoped function call key above is the agent's only authority. The KOL's cash-out uses NEAR Intents (1Click) directly.
+
+Proof on testnet (agent `kolagent4-1c4994.testnet`, escrow `kolescrow4-1c4994.testnet`):
+- Deal 4 (post kept up) released: `A4ehBp6Z4uRU12kMB3kpaxn8WVXwTtnAX5hHSWkWNrLz`
+- Deal 5 (post deleted) refunded: `8RF85rabptMdwaguFCvtXLb76uFR6Hkx37JjxMFZQMJE`
+- Deal 8 (no post by deadline) refunded: `4VYf82EF3eWc3XpLfZZziYdPa6kMP1DKWi5WbRUpN1Yv`
+- Agent keys, read live: `cd agent && KEY_SEED=… node scripts/demo.js proof`, or https://testnet.nearblocks.io/address/kolagent4-1c4994.testnet (Keys tab).
+
 ## Built during the hackathon
 
 - All code in this repository was written during NEAR HACKATHON. The first commit is on 2026-11-07; there is no earlier product or code.

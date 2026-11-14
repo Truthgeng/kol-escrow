@@ -9,7 +9,7 @@
 //! KOLs apply. Accepting an application locks the KOL's asked fee into a deal from the
 //! campaign's funded balance, so a project can only accept what it has already locked up.
 //!
-//! Two timeouts make it trustless in both directions:
+//! Two timeouts keep it from depending on the agent, in both directions:
 //! - no post recorded by deadline + grace  -> anyone can refund the project
 //! - post recorded, agent silent after hold + grace -> anyone can release to the KOL
 
